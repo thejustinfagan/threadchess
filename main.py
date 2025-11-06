@@ -28,6 +28,15 @@ client = tweepy.Client(
 # Bot username
 BOT_USERNAME = "battle_dinghy"
 
+# Get bot's numeric user ID (needed to filter out bot's own tweets)
+try:
+    bot_user = client.get_user(username=BOT_USERNAME)
+    BOT_USER_ID = str(bot_user.data.id) if bot_user.data else None
+    print(f"Bot user ID: {BOT_USER_ID}")
+except Exception as e:
+    print(f"Warning: Could not get bot user ID: {e}")
+    BOT_USER_ID = None
+
 
 def handle_fire_command(last_fire_tweet_id=None):
     """
@@ -63,7 +72,8 @@ def handle_fire_command(last_fire_tweet_id=None):
                 last_fire_tweet_id = tweet.id
 
                 # Skip if this is from the bot itself
-                if tweet.author_id == BOT_USERNAME:
+                if BOT_USER_ID and str(tweet.author_id) == BOT_USER_ID:
+                    print(f"Skipping bot's own tweet {tweet.id}")
                     continue
 
                 print(f"Processing fire command from tweet {tweet.id}")
@@ -344,7 +354,9 @@ def main_loop():
                 for tweet in response.data:
                     last_challenge_tweet_id = tweet.id
 
-                    if tweet.author_id == BOT_USERNAME:
+                    # Skip if this is from the bot itself
+                    if BOT_USER_ID and str(tweet.author_id) == BOT_USER_ID:
+                        print(f"Skipping bot's own tweet {tweet.id}")
                         continue
 
                     print(f"Processing challenge tweet {tweet.id}")
@@ -359,6 +371,8 @@ def main_loop():
                         challenger_username = challenger_id
 
                     tweet_text = tweet.text
+                    print(f"Challenge tweet text: {tweet_text}")
+
                     mentions = []
                     words = tweet_text.split()
                     for word in words:
@@ -366,9 +380,19 @@ def main_loop():
                             mentions.append(word.lstrip('@'))
 
                     if not mentions:
+                        print(f"No opponent mentioned in tweet {tweet.id} - skipping")
+                        # Reply to let user know they need to mention an opponent
+                        try:
+                            client.create_tweet(
+                                text=f"⚠️ Please mention an opponent! Example: '@{BOT_USERNAME} play @opponent'",
+                                in_reply_to_tweet_id=tweet.id
+                            )
+                        except:
+                            pass  # Don't fail if reply doesn't work
                         continue
 
                     opponent_username = mentions[0]
+                    print(f"Found opponent mention: @{opponent_username}")
 
                     # Get opponent's user ID from username
                     try:
