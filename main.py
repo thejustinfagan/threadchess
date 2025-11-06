@@ -116,14 +116,14 @@ def handle_fire_command(last_fire_tweet_id=None):
                             coordinate = potential_coord
                             break
 
-                # If no coordinate found after keywords, search for A-F + 1-6 pattern anywhere
+                # If no coordinate found after keywords, search for A-F + 1-6 pattern
                 if not coordinate:
                     import re
-                    # Match patterns like: a1, A1, 1a, 1A, a-1, a 1
-                    pattern = r'[a-f][1-6]|[1-6][a-f]'
+                    # Match EXACT patterns: a1, A1, 1a, 1A (must be whole word)
+                    pattern = r'^([a-f][1-6]|[1-6][a-f])$'
                     for word in words:
-                        clean_word = word.strip(',:;!?.')
-                        match = re.search(pattern, clean_word)
+                        clean_word = word.strip(',:;!?.').lower()
+                        match = re.fullmatch(pattern, clean_word)
                         if match:
                             coord_str = match.group()
                             # Normalize to A1 format (letter first)

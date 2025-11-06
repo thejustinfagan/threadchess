@@ -128,12 +128,12 @@ def process_shot(coordinate, secret_board, hits_board):
     col = col_number - 1
 
     # Check if this coordinate was already fired upon
-    if hits_board[row][col] != 0:
+    # Values: 0=water, 2-4=ships, 9=miss, 12-14=hit ships
+    cell_value = hits_board[row][col]
+    if cell_value == 9 or cell_value >= 12:  # Miss or hit
         return (f"🔄 Already fired at {coordinate.upper()}! Pick a new spot.", hits_board)
 
-    # Check what's at this coordinate on the secret board
-    cell_value = secret_board[row][col]
-
+    # Check what's at this coordinate (could be water=0, or ship=2/3/4)
     if cell_value == 0:
         # Water - it's a miss
         hits_board[row][col] = 9  # Mark as miss
@@ -141,7 +141,9 @@ def process_shot(coordinate, secret_board, hits_board):
     else:
         # Hit a ship (cell_value is 2, 3, or 4)
         ship_id = cell_value
-        hits_board[row][col] = 1  # Mark as hit
+        # Mark as hit by adding 10 to preserve ship identity
+        # 2 becomes 12, 3 becomes 13, 4 becomes 14
+        hits_board[row][col] = 10 + ship_id  # Mark as HIT ship (preserves which ship)
 
         # Determine which ship was hit
         ship_name = None
@@ -154,13 +156,15 @@ def process_shot(coordinate, secret_board, hits_board):
         ship_positions = []
         for r in range(6):
             for c in range(6):
-                if secret_board[r][c] == ship_id:
+                # Find ship by checking both unhit (2-4) and hit (12-14) positions
+                board_val = hits_board[r][c]
+                if board_val == ship_id or board_val == (10 + ship_id):
                     ship_positions.append((r, c))
 
-        # Check if all positions of this ship are hit
+        # Check if all positions of this ship are hit (value = 10 + ship_id)
         all_hit = True
         for r, c in ship_positions:
-            if hits_board[r][c] != 1:
+            if hits_board[r][c] != (10 + ship_id):  # Not marked as hit yet
                 all_hit = False
                 break
 
@@ -189,6 +193,8 @@ def get_ships_remaining(board):
     """
     Count how many ships are still afloat (not fully sunk) on a board.
 
+    Board values: 0=water, 2-4=unhit ships, 9=miss, 12-14=hit ships
+
     Args:
         board: 6x6 grid with ship positions and hit/miss markers
 
@@ -204,17 +210,19 @@ def get_ships_remaining(board):
 
     # Check each ship type
     for ship_name, ship_id in [('Big Dinghy', 4), ('Dinghy', 3), ('Small Dinghy', 2)]:
-        # Find all positions of this ship
+        # Find all positions of this ship (both unhit and hit)
         ship_positions = []
         for r in range(6):
             for c in range(6):
-                if board[r][c] == ship_id:
+                cell_val = board[r][c]
+                # Ship exists if cell is ship_id (unhit) or 10+ship_id (hit)
+                if cell_val == ship_id or cell_val == (10 + ship_id):
                     ship_positions.append((r, c))
 
         # If ship exists on board, check if it's still afloat
         if ship_positions:
-            # Check if any position is not hit (not marked as 1)
-            afloat = any(board[r][c] != 1 for r, c in ship_positions)
+            # Afloat if ANY position is NOT hit (still has value ship_id, not 10+ship_id)
+            afloat = any(board[r][c] == ship_id for r, c in ship_positions)
             ships_status[ship_name] = afloat
 
     ships_status['total'] = sum(1 for status in [ships_status['Big Dinghy'], ships_status['Dinghy'], ships_status['Small Dinghy']] if status)
@@ -224,6 +232,8 @@ def get_ships_remaining(board):
 def count_hits_and_misses(board):
     """
     Count the number of hits and misses on a board.
+
+    Board values: 0=water, 2-4=unhit ships, 9=miss, 12-14=hit ships
 
     Args:
         board: 6x6 grid with hit/miss markers
@@ -236,7 +246,7 @@ def count_hits_and_misses(board):
 
     for row in board:
         for cell in row:
-            if cell == 1:  # Hit
+            if cell >= 12:  # Hit ships (12, 13, 14)
                 hits += 1
             elif cell == 9:  # Miss
                 misses += 1

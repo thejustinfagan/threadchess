@@ -140,7 +140,7 @@ def generate_board_image(board_data, player_name, theme_color, ships_remaining=N
                 draw.ellipse([x0 + circle_margin, y0 + circle_margin,
                              x1 - circle_margin, y1 - circle_margin],
                             fill=miss_color, outline=text_color, width=2)
-            elif cell_value == 1:
+            elif cell_value >= 12:  # Hit ships (12, 13, 14)
                 # Hit - draw water square with larger red circle
                 draw.rectangle([x0, y0, x1, y1], fill=water_color, outline=text_color, width=2)
                 # Draw larger red circle in the middle
@@ -149,7 +149,7 @@ def generate_board_image(board_data, player_name, theme_color, ships_remaining=N
                              x1 - circle_margin, y1 - circle_margin],
                             fill=hit_color, outline=text_color, width=2)
             else:
-                # Ship (any other value) - draw as water (ships are hidden from opponent)
+                # Ship (2, 3, 4) or any other value - draw as water (ships are hidden from opponent)
                 draw.rectangle([x0, y0, x1, y1], fill=water_color, outline=text_color, width=2)
 
     # Draw legend at bottom
