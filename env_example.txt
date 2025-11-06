@@ -1,0 +1,16 @@
+# X (Twitter) API Credentials
+# Get these from https://developer.twitter.com/en/portal/dashboard
+# Copy this file to .env and fill in your actual credentials
+
+X_API_KEY=your_api_key_here
+X_API_SECRET=your_api_secret_here
+X_ACCESS_TOKEN=your_access_token_here
+X_ACCESS_TOKEN_SECRET=your_access_token_secret_here
+BEARER_TOKEN=your_bearer_token_here
+
+# Supabase Credentials
+# Get these from your Supabase project settings
+# https://app.supabase.com/project/YOUR_PROJECT/settings/api
+
+SUPABASE_URL=your_supabase_url_here
+SUPABASE_KEY=your_supabase_anon_key_here
