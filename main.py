@@ -155,16 +155,16 @@ def handle_fire_command(last_fire_tweet_id=None):
                     board_to_update = "player2_board"
                     opponent_id = player2_id
                     next_turn = 'player2'
-                    shooter_board_theme = p2_theme  # Show P2's board (gray) with hits
-                    opponent_board_theme = p1_theme  # Show P1's board (black) to P2
+                    shooter_board_theme = p2_theme  # Show P2's board (gray) with P1's shots
+                    opponent_board_theme = p2_theme  # Next turn: Show P2's board (gray) to P2
                 else:
                     # Player 2 is shooting at Player 1's board
                     target_board = game_data['player1_board']
                     board_to_update = "player1_board"
                     opponent_id = player1_id
                     next_turn = 'player1'
-                    shooter_board_theme = p1_theme  # Show P1's board (black) with hits
-                    opponent_board_theme = p2_theme  # Show P2's board (gray) to P1
+                    shooter_board_theme = p1_theme  # Show P1's board (black) with P2's shots
+                    opponent_board_theme = p1_theme  # Next turn: Show P1's board (black) to P1
 
                 # Get opponent's username
                 try:
@@ -266,11 +266,8 @@ def handle_fire_command(last_fire_tweet_id=None):
 
                 # If game is not over, prompt the opponent for their turn
                 if not game_over:
-                    # Get the opponent's board for the prompt tweet
-                    if author_id == player1_id:
-                        opponent_board = game_data['player1_board']  # Opponent sees their own board
-                    else:
-                        opponent_board = game_data['player2_board']
+                    # The opponent sees the board that was just updated (their board with the current player's shot)
+                    opponent_board = updated_board
 
                     # Get opponent's ship status
                     opponent_ships = get_ships_remaining(opponent_board)
