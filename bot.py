@@ -298,9 +298,25 @@ class BattleDinghyBot:
             logger.info(f"Handling challenge from @{challenger_username} to @{opponent_username}")
             
             # Get opponent's user ID
-            opponent_user_id = self.get_user_id_by_username(opponent_username)
-            if not opponent_user_id:
-                logger.error(f"Could not get user ID for @{opponent_username}")
+            try:
+                opponent_user_id = self.get_user_id_by_username(opponent_username)
+                if not opponent_user_id:
+                    logger.error(f"Could not get user ID for @{opponent_username}")
+                    # Reply to user with error
+                    self.client.create_tweet(
+                        text=f"⚠️ Couldn't find user @{opponent_username}. Please check the username and try again!",
+                        in_reply_to_tweet_id=tweet_id
+                    )
+                    return False
+            except tweepy.TooManyRequests:
+                logger.error("Rate limit hit while looking up user")
+                self.client.create_tweet(
+                    text=f"⚠️ Rate limit reached. Please try again in a few minutes!",
+                    in_reply_to_tweet_id=tweet_id
+                )
+                return False
+            except Exception as e:
+                logger.error(f"Error looking up user @{opponent_username}: {e}")
                 return False
             
             # Generate game boards for both players using create_new_board
@@ -314,14 +330,22 @@ class BattleDinghyBot:
             
             # Save game state to Supabase database
             logger.info("Saving game state to database...")
-            self.save_game_to_database(
-                game_number=game_number,
-                player1_id=challenger_user_id,
-                player2_id=opponent_user_id,
-                player1_board_data=player1_board_data,
-                player2_board_data=player2_board_data,
-                thread_id=tweet_id
-            )
+            try:
+                self.save_game_to_database(
+                    game_number=game_number,
+                    player1_id=challenger_user_id,
+                    player2_id=opponent_user_id,
+                    player1_board_data=player1_board_data,
+                    player2_board_data=player2_board_data,
+                    thread_id=tweet_id
+                )
+            except Exception as e:
+                logger.error(f"Failed to save game to database: {e}")
+                self.client.create_tweet(
+                    text=f"⚠️ Database error. Please try again later!",
+                    in_reply_to_tweet_id=tweet_id
+                )
+                return False
             
             # Create initial empty boards for display (both players see empty target grids)
             # Players start with empty boards - they don't see opponent's ships

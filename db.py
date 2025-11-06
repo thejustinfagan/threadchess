@@ -2,6 +2,11 @@ import os
 from supabase import create_client
 from dotenv import load_dotenv
 import httpx
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -15,7 +20,12 @@ if not SUPABASE_URL or not SUPABASE_KEY:
         "Please set SUPABASE_URL and SUPABASE_KEY environment variables."
     )
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+try:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    logger.info("Successfully connected to Supabase")
+except Exception as e:
+    logger.error(f"Failed to connect to Supabase: {e}")
+    raise
 
 
 def create_game(player1_id, player2_id, player1_board, player2_board, thread_id):
@@ -31,40 +41,51 @@ def create_game(player1_id, player2_id, player1_board, player2_board, thread_id)
 
     Returns:
         str: The thread_id of the newly created game
+
+    Raises:
+        Exception: If database operation fails
     """
-    # Get the next sequential game number by counting all existing games
-    total_games = supabase.table('games').select('thread_id', count='exact').execute()
-    game_number = (total_games.count if total_games.count else 0) + 1
-
-    # Insert new game into database
-    game_data = {
-        'player1_id': player1_id,
-        'player2_id': player2_id,
-        'player1_board': player1_board,
-        'player2_board': player2_board,
-        'turn': 'player1',
-        'thread_id': thread_id
-    }
-
-    # Try to add optional columns if they exist
     try:
-        game_data['game_state'] = 'active'
-        game_data['bot_post_count'] = 0
-        game_data['game_number'] = game_number
-        response = supabase.table('games').insert(game_data).execute()
-    except Exception as e:
-        error_str = str(e)
-        # Remove columns that don't exist and retry
-        if 'game_state' in error_str:
-            del game_data['game_state']
-        if 'bot_post_count' in error_str:
-            del game_data['bot_post_count']
-        if 'game_number' in error_str:
-            del game_data['game_number']
-        response = supabase.table('games').insert(game_data).execute()
+        # Get the next sequential game number by counting all existing games
+        total_games = supabase.table('games').select('thread_id', count='exact').execute()
+        game_number = (total_games.count if total_games.count else 0) + 1
 
-    # Return the thread_id
-    return thread_id
+        # Insert new game into database
+        game_data = {
+            'player1_id': player1_id,
+            'player2_id': player2_id,
+            'player1_board': player1_board,
+            'player2_board': player2_board,
+            'turn': 'player1',
+            'thread_id': thread_id
+        }
+
+        # Try to add optional columns if they exist
+        try:
+            game_data['game_state'] = 'active'
+            game_data['bot_post_count'] = 0
+            game_data['game_number'] = game_number
+            response = supabase.table('games').insert(game_data).execute()
+        except Exception as e:
+            error_str = str(e)
+            # Remove columns that don't exist and retry
+            if 'game_state' in error_str:
+                del game_data['game_state']
+            if 'bot_post_count' in error_str:
+                del game_data['bot_post_count']
+            if 'game_number' in error_str:
+                del game_data['game_number']
+            response = supabase.table('games').insert(game_data).execute()
+
+        logger.info(f"Successfully created game with thread_id {thread_id}")
+        return thread_id
+
+    except httpx.ConnectError as e:
+        logger.error(f"Connection error creating game: {e}")
+        raise Exception("Could not connect to database")
+    except Exception as e:
+        logger.error(f"Error creating game: {e}")
+        raise
 
 
 def get_game_by_thread_id(thread_id):
@@ -77,11 +98,18 @@ def get_game_by_thread_id(thread_id):
     Returns:
         dict: The complete game state row from the database, or None if not found
     """
-    response = supabase.table('games').select('*').eq('thread_id', thread_id).execute()
+    try:
+        response = supabase.table('games').select('*').eq('thread_id', thread_id).execute()
 
-    if response.data:
-        return response.data[0]
-    return None
+        if response.data:
+            return response.data[0]
+        return None
+    except httpx.ConnectError as e:
+        logger.error(f"Connection error getting game: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Error getting game by thread_id {thread_id}: {e}")
+        return None
 
 
 def update_game_after_shot(thread_id, board_to_update, updated_board, next_turn):

@@ -95,8 +95,17 @@ def process_shot(coordinate, secret_board, hits_board):
                result_message is a string like "Miss! ⭕️" or "Hit! 💥"
                updated_hits_board is the modified hits board
     """
-    # Convert coordinate to uppercase and validate format
+    # Input validation and sanitization
+    if not isinstance(coordinate, str):
+        return ("🎯 Invalid coordinate format! Use A1-F6.", hits_board)
+
+    # Sanitize input - remove potentially dangerous characters
+    coordinate = ''.join(c for c in coordinate if c.isalnum() or c.isspace())
     coordinate = coordinate.strip().upper()
+
+    # Length check to prevent buffer overflow attempts
+    if len(coordinate) > 10:
+        return ("🎯 Coordinate too long! Use format A1-F6.", hits_board)
 
     if len(coordinate) < 2:
         return ("🎯 Oops! Need a coordinate like A1-F6. Try again!", hits_board)
