@@ -60,44 +60,42 @@ class TestShotProcessing(unittest.TestCase):
     def setUp(self):
         """Set up test boards."""
         # Create a simple board with known ship positions
-        self.secret_board = [[0 for _ in range(6)] for _ in range(6)]
+        self.board = [[0 for _ in range(6)] for _ in range(6)]
         # Place Big Dinghy (4) horizontally at A1-A4
         for i in range(4):
-            self.secret_board[0][i] = 4
-
-        self.hits_board = [[0 for _ in range(6)] for _ in range(6)]
+            self.board[0][i] = 4
 
     def test_process_shot_miss(self):
         """Test processing a shot that misses."""
-        result, updated_board = process_shot("F6", self.secret_board, self.hits_board)
+        result, updated_board = process_shot("F6", self.board, self.board)
 
         self.assertIn("Miss", result)
         self.assertEqual(updated_board[5][5], 9, "Cell should be marked as miss (9)")
 
     def test_process_shot_hit(self):
         """Test processing a shot that hits a ship."""
-        result, updated_board = process_shot("A1", self.secret_board, self.hits_board)
+        result, updated_board = process_shot("A1", self.board, self.board)
 
         self.assertIn("Hit", result)
-        self.assertEqual(updated_board[0][0], 1, "Cell should be marked as hit (1)")
+        self.assertEqual(updated_board[0][0], 14, "Cell should be marked as hit Big Dinghy (14 = 10+4)")
 
     def test_process_shot_already_fired(self):
         """Test firing at the same coordinate twice."""
         # First shot
-        process_shot("A1", self.secret_board, self.hits_board)
+        _, self.board = process_shot("A1", self.board, self.board)
 
         # Second shot at same location
-        result, _ = process_shot("A1", self.secret_board, self.hits_board)
+        result, _ = process_shot("A1", self.board, self.board)
 
         self.assertIn("Already fired", result)
 
     def test_process_shot_invalid_coordinate(self):
         """Test invalid coordinate formats."""
         # Test out of range
-        result, _ = process_shot("G1", self.secret_board, self.hits_board)
+        result, _ = process_shot("G1", self.board, self.board)
         self.assertIn("Row must be A-F", result)
 
-        result, _ = process_shot("A7", self.secret_board, self.hits_board)
+        result, _ = process_shot("A7", self.board, self.board)
         self.assertIn("Column must be 1-6", result)
 
     def test_process_shot_sink_ship(self):
@@ -106,15 +104,14 @@ class TestShotProcessing(unittest.TestCase):
         board = [[0 for _ in range(6)] for _ in range(6)]
         board[1][0] = 2
         board[1][1] = 2
-        hits = [[0 for _ in range(6)] for _ in range(6)]
 
-        # Hit first cell
-        result1, hits = process_shot("B1", board, hits)
+        # Hit first cell - pass same board twice (new architecture)
+        result1, board = process_shot("B1", board, board)
         self.assertIn("Hit", result1)
         self.assertNotIn("sunk", result1.lower())
 
         # Hit second cell - should sink
-        result2, hits = process_shot("B2", board, hits)
+        result2, board = process_shot("B2", board, board)
         self.assertIn("sunk", result2.lower())
 
 
@@ -167,12 +164,12 @@ class TestBoardUtilities(unittest.TestCase):
         """Test counting hits and misses on a board."""
         board = [[0 for _ in range(6)] for _ in range(6)]
 
-        # Add 3 hits and 2 misses
-        board[0][0] = 1  # Hit
-        board[0][1] = 1  # Hit
-        board[0][2] = 1  # Hit
-        board[1][0] = 9  # Miss
-        board[1][1] = 9  # Miss
+        # Add 3 hits and 2 misses (hits are now 12-14, not 1)
+        board[0][0] = 12  # Hit Small Dinghy
+        board[0][1] = 13  # Hit Dinghy
+        board[0][2] = 14  # Hit Big Dinghy
+        board[1][0] = 9   # Miss
+        board[1][1] = 9   # Miss
 
         hits, misses = count_hits_and_misses(board)
 
