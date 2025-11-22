@@ -308,8 +308,18 @@ def handle_fire_command(last_fire_tweet_id=None):
 
                 # If game is not over, prompt the opponent for their turn
                 if not game_over:
-                    # The opponent sees the board that was just updated (their board with the current player's shot)
-                    opponent_board = updated_board
+                    # Show the opponent the board they'll be SHOOTING AT (not their defense board)
+                    # This is the shooting board - shows where they can fire next
+                    if author_id == player1_id:
+                        # Player 1 just shot at Player 2's board
+                        # Now show Player 2 where THEY will shoot (Player 1's position board)
+                        opponent_board = game_data['player1_board']
+                        opponent_board_theme = p1_theme  # Black
+                    else:
+                        # Player 2 just shot at Player 1's board
+                        # Now show Player 1 where THEY will shoot (Player 2's position board)
+                        opponent_board = game_data['player2_board']
+                        opponent_board_theme = p2_theme  # Gray
 
                     # Get opponent's ship status
                     opponent_ships = get_ships_remaining(opponent_board)
