@@ -112,7 +112,56 @@ def get_game_by_thread_id(thread_id):
         return None
 
 
-def update_game_after_shot(thread_id, board_to_update, updated_board, next_turn):
+def get_game_robust(tweet_id, conversation_id, author_id):
+    """
+    Robust game lookup with multiple fallback strategies.
+
+    This fixes the thread ID lookup failures caused by Twitter's inconsistent
+    conversation_id behavior.
+
+    Args:
+        tweet_id: The specific tweet ID
+        conversation_id: The Twitter conversation ID (may be None or inconsistent)
+        author_id: The author's Twitter user ID
+
+    Returns:
+        dict: The game state, or None if not found
+    """
+    # Strategy 1: Try conversation_id first (most common case)
+    if conversation_id:
+        game = get_game_by_thread_id(conversation_id)
+        if game:
+            logger.info(f"Found game via conversation_id: {conversation_id}")
+            return game
+
+    # Strategy 2: Try the tweet_id itself (if it started the thread)
+    if tweet_id and tweet_id != conversation_id:
+        game = get_game_by_thread_id(tweet_id)
+        if game:
+            logger.info(f"Found game via tweet_id: {tweet_id}")
+            return game
+
+    # Strategy 3: Find the most recent active game involving this player
+    try:
+        response = supabase.table('games') \
+            .select('*') \
+            .eq('game_state', 'active') \
+            .or_(f'player1_id.eq.{author_id},player2_id.eq.{author_id}') \
+            .order('created_at', desc=True) \
+            .limit(1) \
+            .execute()
+
+        if response.data:
+            logger.warning(f"Using fallback: found recent active game for player {author_id}")
+            return response.data[0]
+    except Exception as e:
+        logger.error(f"Error in fallback game lookup: {e}")
+
+    logger.warning(f"No game found for tweet_id={tweet_id}, conversation_id={conversation_id}, author={author_id}")
+    return None
+
+
+def update_game_after_shot(thread_id, board_to_update, updated_board, next_turn, current_turn=None):
     """
     Update the game state after a shot has been taken.
 
@@ -120,10 +169,11 @@ def update_game_after_shot(thread_id, board_to_update, updated_board, next_turn)
         thread_id: The thread ID of the game to update
         board_to_update: String indicating which board to update ("player1_board" or "player2_board")
         updated_board: The updated board with the shot result (6x6 grid)
-        next_turn: String indicating whose turn is next ("player1" or "player2")
+        next_turn: String indicating whose turn is next ("player1" or "player2" or "completed")
+        current_turn: String indicating whose turn it should be NOW (for validation, optional)
 
     Returns:
-        dict: The updated game state
+        dict: The updated game state, or None if update failed (e.g., wrong turn)
     """
     # Build update data
     update_data = {
@@ -131,11 +181,25 @@ def update_game_after_shot(thread_id, board_to_update, updated_board, next_turn)
         board_to_update: updated_board
     }
 
-    # Update the game in the database
-    response = supabase.table('games').update(update_data).eq('thread_id', thread_id).execute()
+    # DATABASE-LEVEL RACE CONDITION FIX:
+    # Only update if it's actually the current player's turn AND game is active
+    # This prevents race conditions where two shots process simultaneously
+    query = supabase.table('games').update(update_data).eq('thread_id', thread_id)
 
-    if response.data:
+    # Add turn validation if current_turn is provided
+    if current_turn:
+        query = query.eq('turn', current_turn)
+
+    # Only update active games
+    query = query.eq('game_state', 'active')
+
+    response = query.execute()
+
+    # If no rows were updated, the turn validation failed
+    if response.data and len(response.data) > 0:
         return response.data[0]
+
+    logger.warning(f"Update failed for thread {thread_id} - turn validation failed or game not active")
     return None
 
 

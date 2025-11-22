@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'spec.md'))
 # Import our game modules
 from game_logic import create_new_board, process_shot, copy_board, get_ships_remaining, count_hits_and_misses
 from image_generator import generate_board_image
-from db import create_game, get_game_by_thread_id, update_game_after_shot, increment_bot_post_count
+from db import create_game, get_game_by_thread_id, get_game_robust, update_game_after_shot, increment_bot_post_count
 
 # Load environment variables
 load_dotenv()
@@ -78,17 +78,34 @@ def handle_fire_command(last_fire_tweet_id=None):
 
                 print(f"Processing fire command from tweet {tweet.id}")
 
-                # Get thread_id
-                thread_id = str(tweet.conversation_id) if hasattr(tweet, 'conversation_id') else str(tweet.id)
+                # Get thread_id with fallback
+                tweet_id = str(tweet.id)
+                conversation_id = str(tweet.conversation_id) if hasattr(tweet, 'conversation_id') else None
+                author_id = str(tweet.author_id)
 
-                # Get the game by thread_id
-                game_data = get_game_by_thread_id(thread_id)
+                # THREAD ID LOOKUP FIX: Use robust lookup with multiple fallback strategies
+                # This prevents "No game found" errors due to Twitter's inconsistent conversation_id
+                game_data = get_game_robust(tweet_id, conversation_id, author_id)
 
                 if not game_data:
-                    print(f"No game found for thread {thread_id}")
+                    print(f"No game found for tweet_id={tweet_id}, conversation_id={conversation_id}")
+                    reply_text = "❌ No active game found. Make sure you're replying in the game thread!"
+                    try:
+                        client.create_tweet(
+                            text=reply_text,
+                            in_reply_to_tweet_id=tweet.id
+                        )
+                    except:
+                        pass  # Don't fail if reply doesn't work
                     continue
 
-                author_id = str(tweet.author_id)
+                # Extract thread_id for later use
+                thread_id = game_data['thread_id']
+
+                # Check game is still active
+                if game_data.get('game_state') != 'active':
+                    print(f"Game {thread_id} is not active (state: {game_data.get('game_state')})")
+                    continue
 
                 # Get the author's username for display purposes
                 try:
@@ -97,7 +114,8 @@ def handle_fire_command(last_fire_tweet_id=None):
                 except:
                     author_username = author_id  # Fallback to ID if lookup fails
 
-                # Check if it's the author's turn (compare against player IDs based on turn)
+                # TURN VALIDATION: Check if it's the author's turn
+                # This is critical for preventing race conditions
                 current_turn_player_id = game_data['player1_id'] if game_data['turn'] == 'player1' else game_data['player2_id']
 
                 if author_id != current_turn_player_id:
@@ -199,21 +217,35 @@ def handle_fire_command(last_fire_tweet_id=None):
                 ships_remaining = get_ships_remaining(updated_board)
                 game_over = ships_remaining['total'] == 0
 
-                # Update the game state in database
+                # Update the game state in database with turn validation
+                # Pass current_turn to prevent race conditions
+                current_turn = game_data['turn']  # The turn it should be NOW
                 if game_over:
-                    update_game_after_shot(
+                    db_result = update_game_after_shot(
                         thread_id,
                         board_to_update,
                         updated_board,
-                        'completed'  # Mark game as completed
+                        'completed',  # Mark game as completed
+                        current_turn  # Validate it's still this player's turn
                     )
                 else:
-                    update_game_after_shot(
+                    db_result = update_game_after_shot(
                         thread_id,
                         board_to_update,
                         updated_board,
-                        next_turn
+                        next_turn,
+                        current_turn  # Validate it's still this player's turn
                     )
+
+                # Check if database update failed (race condition detected)
+                if not db_result:
+                    print(f"Database update failed - race condition detected or game no longer active")
+                    reply_text = "⚠️ Oops! Something went wrong. The game state changed. Please try again!"
+                    client.create_tweet(
+                        text=reply_text,
+                        in_reply_to_tweet_id=tweet.id
+                    )
+                    continue  # Skip to next tweet
 
                 # Get scoreboard stats
                 hits, misses = count_hits_and_misses(updated_board)
@@ -394,12 +426,34 @@ def main_loop():
                     opponent_username = mentions[0]
                     print(f"Found opponent mention: @{opponent_username}")
 
-                    # Get opponent's user ID from username
+                    # OPPONENT VALIDATION FIX: Verify opponent exists before creating game
+                    # This prevents broken games with invalid opponent IDs
                     try:
                         opponent_user_response = client.get_user(username=opponent_username)
-                        opponent_id = str(opponent_user_response.data.id) if opponent_user_response.data else opponent_username
-                    except:
-                        opponent_id = opponent_username  # Fallback
+                        if not opponent_user_response.data:
+                            print(f"Opponent @{opponent_username} not found")
+                            # Reply with error - DON'T create game
+                            try:
+                                client.create_tweet(
+                                    text=f"❌ User @{opponent_username} not found! Please mention a valid Twitter user.",
+                                    in_reply_to_tweet_id=tweet.id
+                                )
+                            except:
+                                pass
+                            continue  # Skip game creation
+
+                        opponent_id = str(opponent_user_response.data.id)
+                    except Exception as e:
+                        print(f"Error looking up opponent @{opponent_username}: {e}")
+                        # Reply with error - DON'T create game
+                        try:
+                            client.create_tweet(
+                                text=f"❌ Couldn't find user @{opponent_username}. Please check the username and try again!",
+                                in_reply_to_tweet_id=tweet.id
+                            )
+                        except:
+                            pass
+                        continue  # Skip game creation
 
                     print(f"Challenge: {challenger_username} vs {opponent_username}")
 
