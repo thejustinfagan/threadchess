@@ -29,9 +29,9 @@ def generate_board_image(board_data, player_name, theme_color, ships_remaining=N
         hex_color = hex_color.lstrip('#')
         return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
 
-    # Settings
-    SQUARE_SIZE = 60
-    MARGIN = 50  # Increased for better spacing
+    # Settings - Increased for better Twitter quality
+    SQUARE_SIZE = 100  # Increased from 60 for better readability
+    MARGIN = 80  # Increased from 50 for better spacing
 
     # Calculate image dimensions with extra space for legend and ship count
     title_space = 80  # Space for title and player name
@@ -44,20 +44,27 @@ def generate_board_image(board_data, player_name, theme_color, ships_remaining=N
     image = Image.new('RGB', (width, height), bg_color)
     draw = ImageDraw.Draw(image)
 
-    # Load font
+    # Load font with platform-specific paths
+    import platform
+    system = platform.system()
+
     try:
-        title_font = ImageFont.truetype("arial.ttf", 24)
-        player_font = ImageFont.truetype("arial.ttf", 20)
-        label_font = ImageFont.truetype("arial.ttf", 16)
-    except:
-        try:
-            title_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 24)
-            player_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 20)
-            label_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 16)
-        except:
-            title_font = ImageFont.load_default()
-            player_font = ImageFont.load_default()
-            label_font = ImageFont.load_default()
+        if system == "Windows":
+            font_base = "C:/Windows/Fonts/arial.ttf"
+        elif system == "Darwin":  # Mac
+            font_base = "/System/Library/Fonts/Helvetica.ttc"
+        else:  # Linux
+            font_base = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
+        title_font = ImageFont.truetype(font_base, 28)  # Increased from 24
+        player_font = ImageFont.truetype(font_base, 24)  # Increased from 20
+        label_font = ImageFont.truetype(font_base, 18)  # Increased from 16
+        print(f"✅ Loaded font from: {font_base}")
+    except Exception as e:
+        print(f"⚠️ Font loading failed: {e}, using default font")
+        title_font = ImageFont.load_default()
+        player_font = ImageFont.load_default()
+        label_font = ImageFont.load_default()
 
     text_color = hex_to_rgb(colors['text'])
 
@@ -156,14 +163,11 @@ def generate_board_image(board_data, player_name, theme_color, ships_remaining=N
     legend_y = grid_start_y + (6 * SQUARE_SIZE) + 40
 
     try:
-        legend_font = ImageFont.truetype("arial.ttf", 14)
+        legend_font = ImageFont.truetype(font_base, 16)  # Increased from 14 to match larger image
     except:
-        try:
-            legend_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 14)
-        except:
-            legend_font = ImageFont.load_default()
+        legend_font = ImageFont.load_default()
 
-    legend_text = "⭕ = Miss  |  💥 = Hit"
+    legend_text = "○ = Miss  |  ● = Hit"  # Using Unicode circles instead of emojis for better compatibility
     legend_bbox = draw.textbbox((0, 0), legend_text, font=legend_font)
     legend_width = legend_bbox[2] - legend_bbox[0]
     legend_x = (width - legend_width) // 2
@@ -172,7 +176,7 @@ def generate_board_image(board_data, player_name, theme_color, ships_remaining=N
     # Draw ship count if provided
     if ships_remaining and 'total' in ships_remaining:
         ships_y = legend_y + 20
-        ships_text = f"🚢 Ships: {'🟢' * ships_remaining['total']}{'⚫' * (3 - ships_remaining['total'])}"
+        ships_text = f"Ships Remaining: {ships_remaining['total']}/3"  # Text-based instead of emojis for better compatibility
         ships_bbox = draw.textbbox((0, 0), ships_text, font=legend_font)
         ships_width = ships_bbox[2] - ships_bbox[0]
         ships_x = (width - ships_width) // 2
