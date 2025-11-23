@@ -3,6 +3,7 @@ from supabase import create_client
 from dotenv import load_dotenv
 import httpx
 import logging
+import random
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -50,13 +51,17 @@ def create_game(player1_id, player2_id, player1_board, player2_board, thread_id)
         total_games = supabase.table('games').select('thread_id', count='exact').execute()
         game_number = (total_games.count if total_games.count else 0) + 1
 
+        # Randomly select who goes first (50/50 chance for fairness)
+        first_player = random.choice(['player1', 'player2'])
+        logger.info(f"Random first player selected: {first_player}")
+
         # Insert new game into database
         game_data = {
             'player1_id': player1_id,
             'player2_id': player2_id,
             'player1_board': player1_board,
             'player2_board': player2_board,
-            'turn': 'player1',
+            'turn': first_player,  # Random! Could be either player
             'thread_id': thread_id
         }
 

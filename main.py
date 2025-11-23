@@ -487,9 +487,16 @@ def main_loop():
                     # Get the post number for this bot tweet
                     post_number = increment_bot_post_count(thread_id)
 
-                    # Get the game number from the database
+                    # Get the game data to determine who goes first (random selection)
                     game_data = get_game_by_thread_id(thread_id)
                     game_number = game_data.get('game_number', 1) if game_data else 1
+
+                    # Determine who goes first based on random selection in database
+                    first_turn = game_data.get('turn', 'player1') if game_data else 'player1'
+                    if first_turn == 'player1':
+                        first_player_username = challenger_username
+                    else:
+                        first_player_username = opponent_username
 
                     reply_text = (
                         f"{post_number}/ ⚔️ Game #{game_number} has begun! ⚔️\n\n"
@@ -498,7 +505,7 @@ def main_loop():
                         f"• Reply with: fire [coordinate]\n"
                         f"• Example: fire A1\n"
                         f"• Grid: A-F (rows) × 1-6 (columns)\n\n"
-                        f"@{challenger_username}, you're up first! 🎯"
+                        f"@{first_player_username}, you're up first! 🎯"
                     )
 
                     # Upload image to Twitter using v1.1 API
