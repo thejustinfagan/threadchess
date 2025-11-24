@@ -158,6 +158,7 @@ def get_game_robust(tweet_id, conversation_id, author_id):
 
         if response.data:
             logger.warning(f"Using fallback: found recent active game for player {author_id}")
+            logger.info(f"Used fallback strategy for player {author_id}")
             return response.data[0]
     except Exception as e:
         logger.error(f"Error in fallback game lookup: {e}")
@@ -205,6 +206,7 @@ def update_game_after_shot(thread_id, board_to_update, updated_board, next_turn,
         return response.data[0]
 
     logger.warning(f"Update failed for thread {thread_id} - turn validation failed or game not active")
+    logger.warning(f"DB update failed for {thread_id} - turn validation failed")
     return None
 
 

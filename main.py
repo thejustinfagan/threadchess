@@ -2,7 +2,19 @@ import tweepy
 import os
 import time
 import sys
+import logging
 from dotenv import load_dotenv
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('battle_dinghy.log'),
+        logging.StreamHandler()  # Also print to console
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # Add the spec.md directory to the path to import game_logic
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'spec.md'))
@@ -212,6 +224,7 @@ def handle_fire_command(last_fire_tweet_id=None):
                 )
 
                 print(f"Shot result: {result_text}")
+                logger.info(f"Shot processed in {thread_id}: {coordinate} -> {result_text}")
 
                 # Check ships remaining and game end condition
                 ships_remaining = get_ships_remaining(updated_board)
@@ -368,6 +381,7 @@ def main_loop():
     Main game loop that polls for both challenges and fire commands.
     """
     print(f"Starting Battle Dinghy bot polling for {BOT_USERNAME}...")
+    logger.info(f"Battle Dinghy bot started, polling for {BOT_USERNAME}")
 
     # Track the last tweet IDs we've seen
     last_challenge_tweet_id = None
@@ -419,7 +433,10 @@ def main_loop():
                     words = tweet_text.split()
                     for word in words:
                         if word.startswith('@') and word.lower() != f'@{BOT_USERNAME}'.lower():
-                            mentions.append(word.lstrip('@'))
+                            # Strip @ from start AND punctuation from end
+                            clean_username = word.lstrip('@').rstrip(',:;!?.')
+                            if clean_username:  # Make sure something remains
+                                mentions.append(clean_username)
 
                     if not mentions:
                         print(f"No opponent mentioned in tweet {tweet.id} - skipping")
@@ -465,6 +482,30 @@ def main_loop():
                             pass
                         continue  # Skip game creation
 
+                    # SELF-CHALLENGE VALIDATION: Block users from challenging themselves
+                    if opponent_id == challenger_id:
+                        print(f"User {challenger_id} tried to challenge themselves")
+                        try:
+                            client.create_tweet(
+                                text="❌ You can't challenge yourself! Pick a friend to play against.",
+                                in_reply_to_tweet_id=tweet.id
+                            )
+                        except:
+                            pass
+                        continue  # Skip game creation
+
+                    # BOT-CHALLENGE VALIDATION: Block users from challenging the bot
+                    if BOT_USER_ID and opponent_id == BOT_USER_ID:
+                        print(f"User {challenger_id} tried to challenge the bot")
+                        try:
+                            client.create_tweet(
+                                text="❌ You can't challenge me! I'm the referee, not a player! 🤖",
+                                in_reply_to_tweet_id=tweet.id
+                            )
+                        except:
+                            pass
+                        continue  # Skip game creation
+
                     print(f"Challenge: {challenger_username} vs {opponent_username}")
 
                     board1 = create_new_board()
@@ -497,6 +538,9 @@ def main_loop():
                         first_player_username = challenger_username
                     else:
                         first_player_username = opponent_username
+
+                    # Log game creation with first player info
+                    logger.info(f"Game created: {thread_id}, {challenger_username} vs {opponent_username}, first player: {first_player_username}")
 
                     reply_text = (
                         f"{post_number}/ ⚔️ Game #{game_number} has begun! ⚔️\n\n"
@@ -536,6 +580,7 @@ def main_loop():
 
         except Exception as e:
             print(f"Error in main loop: {e}")
+            logger.error(f"Error in main loop: {e}")
             print("Continuing to next poll cycle...")
 
         # Wait 60 seconds before polling again
