@@ -1,592 +1,138 @@
-import tweepy
-import os
-import time
-import sys
-import logging
-from dotenv import load_dotenv
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('battle_dinghy.log'),
-        logging.StreamHandler()  # Also print to console
-    ]
-)
-logger = logging.getLogger(__name__)
-
-# Add the spec.md directory to the path to import game_logic
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'spec.md'))
-
-# Import our game modules
-from game_logic import create_new_board, process_shot, copy_board, get_ships_remaining, count_hits_and_misses
-from image_generator import generate_board_image
-from db import create_game, get_game_by_thread_id, get_game_robust, update_game_after_shot, increment_bot_post_count
-
-# Load environment variables
-load_dotenv()
-
-# Set up Tweepy Client (using same env vars as bot.py)
-client = tweepy.Client(
-    bearer_token=os.getenv("BEARER_TOKEN"),
-    consumer_key=os.getenv("X_API_KEY"),
-    consumer_secret=os.getenv("X_API_SECRET"),
-    access_token=os.getenv("X_ACCESS_TOKEN"),
-    access_token_secret=os.getenv("X_ACCESS_TOKEN_SECRET"),
-    wait_on_rate_limit=True
-)
-
-# Bot username
-BOT_USERNAME = "battle_dinghy"
-
-# Get bot's numeric user ID (needed to filter out bot's own tweets)
-try:
-    bot_user = client.get_user(username=BOT_USERNAME)
-    BOT_USER_ID = str(bot_user.data.id) if bot_user.data else None
-    print(f"Bot user ID: {BOT_USER_ID}")
-except Exception as e:
-    print(f"Warning: Could not get bot user ID: {e}")
-    BOT_USER_ID = None
+import random
+from typing import Dict, List, Tuple, Union
 
 
-def handle_fire_command(last_fire_tweet_id=None):
+def place_dinghies() -> Dict[str, Union[List[List[int]], Dict[str, List[Tuple[int, int]]], Dict[str, str]]]:
     """
-    Handle fire commands from players.
-
-    This function searches for tweets containing "fire" commands and processes them.
+    Randomly place a fleet of ships (dinghies) on a 6x6 grid.
+    Fleet: 1x Big Dinghy (3 squares), 2x Dinghy (2 squares each), 1x Small Dinghy (1 square)
 
     Returns:
-        str: The last fire tweet ID processed (or None if no tweets were processed)
+        Dict containing:
+        - 'grid': 6x6 list where 0=water, ship_id=ship number (1-4)
+        - 'ships': Dict mapping ship_id to list of coordinates
+        - 'ship_names': Dict mapping ship_id to ship name
     """
-    print("\nChecking for fire commands...")
+    grid = [[0 for _ in range(6)] for _ in range(6)]
+    ships = {}
+    ship_names = {}
+    # Fleet: one Big Dinghy (3), two Dinghy (2), one Small Dinghy (1)
+    fleet = [
+        (3, "Big Dinghy"),
+        (2, "Dinghy"),
+        (2, "Dinghy"),
+        (1, "Small Dinghy")
+    ]
+    
+    for ship_id, (size, name) in enumerate(fleet, 1):
+        placed = False
+        attempts = 0
+        max_attempts = 1000
+        
+        while not placed and attempts < max_attempts:
+            # Random starting position and direction
+            row = random.randint(0, 5)
+            col = random.randint(0, 5)
+            horizontal = random.choice([True, False])
+            
+            # Check if ship can be placed
+            coordinates = []
+            valid = True
+            
+            for i in range(size):
+                if horizontal:
+                    new_row, new_col = row, col + i
+                else:
+                    new_row, new_col = row + i, col
+                
+                # Check bounds
+                if new_row >= 6 or new_col >= 6:
+                    valid = False
+                    break
+                
+                # Check for overlaps
+                if grid[new_row][new_col] != 0:
+                    valid = False
+                    break
+                
+                coordinates.append((new_row, new_col))
+            
+            if valid:
+                # Place the ship
+                for r, c in coordinates:
+                    grid[r][c] = ship_id
+                ships[ship_id] = coordinates
+                ship_names[ship_id] = name
+                placed = True
+            
+            attempts += 1
+        
+        if not placed:
+            raise Exception(f"Could not place {name} after {max_attempts} attempts")
+    
+    return {'grid': grid, 'ships': ships, 'ship_names': ship_names}
 
-    # Search for recent tweets mentioning the bot with "fire"
-    query = f"{BOT_USERNAME} fire"
 
-    search_params = {
-        'query': query,
-        'max_results': 10,
-        'tweet_fields': ['author_id', 'created_at', 'conversation_id']
-    }
-
-    if last_fire_tweet_id:
-        search_params['since_id'] = last_fire_tweet_id
-
+def process_shot(grid_data: Dict, coordinate: str) -> str:
+    """
+    Process a shot at the given coordinate.
+    
+    Args:
+        grid_data: Dictionary containing grid and ships data from place_dinghies()
+        coordinate: String like 'B5' (letter A-F, number 1-6)
+    
+    Returns:
+        'hit', 'miss', or ship name if sunk (e.g., 'Big Dinghy', 'Dinghy', 'Small Dinghy')
+    """
+    # Parse coordinate
+    if len(coordinate) < 2:
+        return 'miss'
+    
+    letter = coordinate[0].upper()
     try:
-        response = client.search_recent_tweets(**search_params)
-
-        if response.data:
-            print(f"Found {len(response.data)} fire command(s)")
-
-            for tweet in response.data:
-                # Update last_fire_tweet_id
-                last_fire_tweet_id = tweet.id
-
-                # Skip if this is from the bot itself
-                if BOT_USER_ID and str(tweet.author_id) == BOT_USER_ID:
-                    print(f"Skipping bot's own tweet {tweet.id}")
-                    continue
-
-                print(f"Processing fire command from tweet {tweet.id}")
-
-                # Get thread_id with fallback
-                tweet_id = str(tweet.id)
-                conversation_id = str(tweet.conversation_id) if hasattr(tweet, 'conversation_id') else None
-                author_id = str(tweet.author_id)
-
-                # THREAD ID LOOKUP FIX: Use robust lookup with multiple fallback strategies
-                # This prevents "No game found" errors due to Twitter's inconsistent conversation_id
-                game_data = get_game_robust(tweet_id, conversation_id, author_id)
-
-                if not game_data:
-                    print(f"No game found for tweet_id={tweet_id}, conversation_id={conversation_id}")
-                    reply_text = "❌ No active game found. Make sure you're replying in the game thread!"
-                    try:
-                        client.create_tweet(
-                            text=reply_text,
-                            in_reply_to_tweet_id=tweet.id
-                        )
-                    except:
-                        pass  # Don't fail if reply doesn't work
-                    continue
-
-                # Extract thread_id for later use
-                thread_id = game_data['thread_id']
-
-                # Check game is still active
-                if game_data.get('game_state') != 'active':
-                    print(f"Game {thread_id} is not active (state: {game_data.get('game_state')})")
-                    continue
-
-                # Get the author's username for display purposes
-                try:
-                    user_response = client.get_user(id=tweet.author_id)
-                    author_username = user_response.data.username if user_response.data else author_id
-                except:
-                    author_username = author_id  # Fallback to ID if lookup fails
-
-                # TURN VALIDATION: Check if it's the author's turn
-                # This is critical for preventing race conditions
-                current_turn_player_id = game_data['player1_id'] if game_data['turn'] == 'player1' else game_data['player2_id']
-
-                if author_id != current_turn_player_id:
-                    # Not their turn - get opponent name for helpful message
-                    whose_turn = game_data['player1_id'] if game_data['turn'] == 'player1' else game_data['player2_id']
-                    reply_text = f"⏳ Hold up! It's @{whose_turn}'s turn. You'll go next!"
-                    client.create_tweet(
-                        text=reply_text,
-                        in_reply_to_tweet_id=tweet.id
-                    )
-                    print(f"Rejected turn for {author_id} - not their turn")
-                    continue
-
-                # Parse the coordinate from the tweet text
-                tweet_text = tweet.text.lower()
-                words = tweet_text.split()
-
-                coordinate = None
-
-                # Look for coordinate after "fire", "at", "shoot", or just find any A-F + 1-6 pattern
-                for i, word in enumerate(words):
-                    if word in ["fire", "shoot", "at"]:
-                        # Check next word
-                        if i + 1 < len(words):
-                            potential_coord = words[i + 1].strip(',:;!?.')
-                            coordinate = potential_coord
-                            break
-
-                # If no coordinate found after keywords, search for A-F + 1-6 pattern
-                if not coordinate:
-                    import re
-                    # Match EXACT patterns: a1, A1, 1a, 1A (must be whole word)
-                    pattern = r'^([a-f][1-6]|[1-6][a-f])$'
-                    for word in words:
-                        clean_word = word.strip(',:;!?.').lower()
-                        match = re.fullmatch(pattern, clean_word)
-                        if match:
-                            coord_str = match.group()
-                            # Normalize to A1 format (letter first)
-                            if coord_str[0].isdigit():
-                                coordinate = coord_str[1] + coord_str[0]  # Swap to letter-first
-                            else:
-                                coordinate = coord_str
-                            break
-
-                if not coordinate:
-                    reply_text = "🎯 Please specify a coordinate! Example: 'fire A1' (A-F, 1-6)"
-                    client.create_tweet(
-                        text=reply_text,
-                        in_reply_to_tweet_id=tweet.id
-                    )
-                    continue
-
-                # Determine which player is shooting
-                player1_id = game_data['player1_id']
-                player2_id = game_data['player2_id']
-
-                # Player theme colors - Player 1 gets black, Player 2 gets gray
-                p1_theme = '#2C2C2C'  # Black for Player 1
-                p2_theme = '#808080'  # Gray for Player 2
-
-                if author_id == player1_id:
-                    # Player 1 is shooting at Player 2's board
-                    target_board = game_data['player2_board']
-                    board_to_update = "player2_board"
-                    opponent_id = player2_id
-                    next_turn = 'player2'
-                    shooter_board_theme = p2_theme  # Show P2's board (gray) with P1's shots
-                    opponent_board_theme = p2_theme  # Next turn: Show P2's board (gray) to P2
-                else:
-                    # Player 2 is shooting at Player 1's board
-                    target_board = game_data['player1_board']
-                    board_to_update = "player1_board"
-                    opponent_id = player1_id
-                    next_turn = 'player1'
-                    shooter_board_theme = p1_theme  # Show P1's board (black) with P2's shots
-                    opponent_board_theme = p1_theme  # Next turn: Show P1's board (black) to P1
-
-                # Get opponent's username
-                try:
-                    opponent_user_response = client.get_user(id=opponent_id)
-                    opponent_username = opponent_user_response.data.username if opponent_user_response.data else opponent_id
-                except:
-                    opponent_username = opponent_id  # Fallback to ID if lookup fails
-
-                # Make a copy of the target board to avoid mutations
-                target_board_copy = copy_board(target_board)
-
-                # Process the shot - this updates the target board to mark hit/miss
-                result_text, updated_board = process_shot(
-                    coordinate,
-                    target_board_copy,
-                    target_board_copy  # We're marking hits/misses on the target board itself
-                )
-
-                print(f"Shot result: {result_text}")
-                logger.info(f"Shot processed in {thread_id}: {coordinate} -> {result_text}")
-
-                # Check ships remaining and game end condition
-                ships_remaining = get_ships_remaining(updated_board)
-                game_over = ships_remaining['total'] == 0
-
-                # Update the game state in database with turn validation
-                # Pass current_turn to prevent race conditions
-                current_turn = game_data['turn']  # The turn it should be NOW
-                if game_over:
-                    db_result = update_game_after_shot(
-                        thread_id,
-                        board_to_update,
-                        updated_board,
-                        'completed',  # Mark game as completed
-                        current_turn  # Validate it's still this player's turn
-                    )
-                else:
-                    db_result = update_game_after_shot(
-                        thread_id,
-                        board_to_update,
-                        updated_board,
-                        next_turn,
-                        current_turn  # Validate it's still this player's turn
-                    )
-
-                # Check if database update failed (race condition detected)
-                if not db_result:
-                    print(f"Database update failed - race condition detected or game no longer active")
-                    reply_text = "⚠️ Oops! Something went wrong. The game state changed. Please try again!"
-                    client.create_tweet(
-                        text=reply_text,
-                        in_reply_to_tweet_id=tweet.id
-                    )
-                    continue  # Skip to next tweet
-
-                # Get scoreboard stats
-                hits, misses = count_hits_and_misses(updated_board)
-
-                # Generate the result image showing the updated board with ship count
-                result_image = generate_board_image(
-                    updated_board,
-                    f"@{author_username}",
-                    shooter_board_theme,
-                    ships_remaining
-                )
-
-                print(f"Generated result image: {result_image}")
-
-                # Get post number for result tweet
-                result_post_number = increment_bot_post_count(thread_id)
-
-                # Get game number from the database
-                game_number = game_data.get('game_number', 1)
-
-                # Build result tweet with scoreboard
-                if game_over:
-                    result_tweet_text = (
-                        f"{result_post_number}/ {result_text}\n\n"
-                        f"🎉 GAME OVER! @{author_username} WINS! 🏆\n\n"
-                        f"📊 Final Stats:\n"
-                        f"• Shots: {hits + misses}\n"
-                        f"• Hits: {hits} 💥\n"
-                        f"• Misses: {misses} ⭕\n"
-                        f"• Accuracy: {round(hits/(hits+misses)*100) if hits+misses > 0 else 0}%\n\n"
-                        f"Game #{game_number}"
-                    )
-                else:
-                    result_tweet_text = (
-                        f"{result_post_number}/ {result_text}\n\n"
-                        f"📊 Stats: {hits} hits, {misses} misses\n"
-                        f"🚢 Ships left: {ships_remaining['total']}/3\n\n"
-                        f"Game #{game_number}"
-                    )
-
-                # Upload image using v1.1 API
-                import tweepy
-                auth = tweepy.OAuth1UserHandler(
-                    os.getenv("X_API_KEY"),
-                    os.getenv("X_API_SECRET"),
-                    os.getenv("X_ACCESS_TOKEN"),
-                    os.getenv("X_ACCESS_TOKEN_SECRET")
-                )
-                api = tweepy.API(auth)
-                media = api.media_upload(result_image)
-
-                # Post the result tweet - reply to the THREAD not the fire command
-                result_tweet = client.create_tweet(
-                    text=result_tweet_text,
-                    in_reply_to_tweet_id=thread_id,
-                    media_ids=[media.media_id]
-                )
-
-                print(f"Posted result tweet {result_tweet.data['id']}")
-
-                # If game is not over, prompt the opponent for their turn
-                if not game_over:
-                    # Show the opponent the board they'll be SHOOTING AT (not their defense board)
-                    # This is the shooting board - shows where they can fire next
-                    if author_id == player1_id:
-                        # Player 1 just shot at Player 2's board
-                        # Now show Player 2 where THEY will shoot (Player 1's position board)
-                        opponent_board = game_data['player1_board']
-                        opponent_board_theme = p1_theme  # Black
-                    else:
-                        # Player 2 just shot at Player 1's board
-                        # Now show Player 1 where THEY will shoot (Player 2's position board)
-                        opponent_board = game_data['player2_board']
-                        opponent_board_theme = p2_theme  # Gray
-
-                    # Get opponent's ship status
-                    opponent_ships = get_ships_remaining(opponent_board)
-
-                    # Generate opponent's board image with ship count
-                    opponent_image = generate_board_image(
-                        opponent_board,
-                        f"@{opponent_username}",
-                        opponent_board_theme,
-                        opponent_ships
-                    )
-
-                    print(f"Generated opponent image: {opponent_image}")
-
-                    # Get post number for prompt tweet
-                    prompt_post_number = increment_bot_post_count(thread_id)
-
-                    # Upload opponent's board image
-                    media_opponent = api.media_upload(opponent_image)
-
-                    # Post the prompt tweet for the opponent - reply to THREAD not previous tweet
-                    prompt_text = f"{prompt_post_number}/ Your turn, @{opponent_username}! Fire away! 🎯"
-                    prompt_tweet = client.create_tweet(
-                        text=prompt_text,
-                        in_reply_to_tweet_id=thread_id,
-                        media_ids=[media_opponent.media_id]
-                    )
-
-                    print(f"Posted prompt tweet {prompt_tweet.data['id']}")
-                else:
-                    print(f"Game over! {author_id} wins!")
-
-                print("Turn completed successfully!")
-
-        else:
-            print("No fire commands found")
-
-    except Exception as e:
-        print(f"Error in handle_fire_command: {e}")
-
-    return last_fire_tweet_id
-
-
-def main_loop():
-    """
-    Main game loop that polls for both challenges and fire commands.
-    """
-    print(f"Starting Battle Dinghy bot polling for {BOT_USERNAME}...")
-    logger.info(f"Battle Dinghy bot started, polling for {BOT_USERNAME}")
-
-    # Track the last tweet IDs we've seen
-    last_challenge_tweet_id = None
-    last_fire_tweet_id = None
-
-    while True:
-        try:
-            # Check for new challenges
-            print("\nChecking for new challenges...")
-            query = f"{BOT_USERNAME} play"
-
-            search_params = {
-                'query': query,
-                'max_results': 10,
-                'tweet_fields': ['author_id', 'created_at', 'conversation_id']
-            }
-
-            if last_challenge_tweet_id:
-                search_params['since_id'] = last_challenge_tweet_id
-
-            response = client.search_recent_tweets(**search_params)
-
-            if response.data:
-                print(f"Found {len(response.data)} new challenge(s)")
-
-                for tweet in response.data:
-                    last_challenge_tweet_id = tweet.id
-
-                    # Skip if this is from the bot itself
-                    if BOT_USER_ID and str(tweet.author_id) == BOT_USER_ID:
-                        print(f"Skipping bot's own tweet {tweet.id}")
-                        continue
-
-                    print(f"Processing challenge tweet {tweet.id}")
-
-                    challenger_id = str(tweet.author_id)
-
-                    # Get challenger's username
-                    try:
-                        challenger_user_response = client.get_user(id=tweet.author_id)
-                        challenger_username = challenger_user_response.data.username if challenger_user_response.data else challenger_id
-                    except:
-                        challenger_username = challenger_id
-
-                    tweet_text = tweet.text
-                    print(f"Challenge tweet text: {tweet_text}")
-
-                    mentions = []
-                    words = tweet_text.split()
-                    for word in words:
-                        if word.startswith('@') and word.lower() != f'@{BOT_USERNAME}'.lower():
-                            # Strip @ from start AND punctuation from end
-                            clean_username = word.lstrip('@').rstrip(',:;!?.')
-                            if clean_username:  # Make sure something remains
-                                mentions.append(clean_username)
-
-                    if not mentions:
-                        print(f"No opponent mentioned in tweet {tweet.id} - skipping")
-                        # Reply to let user know they need to mention an opponent
-                        try:
-                            client.create_tweet(
-                                text=f"⚠️ Please mention an opponent! Example: '@{BOT_USERNAME} play @opponent'",
-                                in_reply_to_tweet_id=tweet.id
-                            )
-                        except:
-                            pass  # Don't fail if reply doesn't work
-                        continue
-
-                    opponent_username = mentions[0]
-                    print(f"Found opponent mention: @{opponent_username}")
-
-                    # OPPONENT VALIDATION FIX: Verify opponent exists before creating game
-                    # This prevents broken games with invalid opponent IDs
-                    try:
-                        opponent_user_response = client.get_user(username=opponent_username)
-                        if not opponent_user_response.data:
-                            print(f"Opponent @{opponent_username} not found")
-                            # Reply with error - DON'T create game
-                            try:
-                                client.create_tweet(
-                                    text=f"❌ User @{opponent_username} not found! Please mention a valid Twitter user.",
-                                    in_reply_to_tweet_id=tweet.id
-                                )
-                            except:
-                                pass
-                            continue  # Skip game creation
-
-                        opponent_id = str(opponent_user_response.data.id)
-                    except Exception as e:
-                        print(f"Error looking up opponent @{opponent_username}: {e}")
-                        # Reply with error - DON'T create game
-                        try:
-                            client.create_tweet(
-                                text=f"❌ Couldn't find user @{opponent_username}. Please check the username and try again!",
-                                in_reply_to_tweet_id=tweet.id
-                            )
-                        except:
-                            pass
-                        continue  # Skip game creation
-
-                    # SELF-CHALLENGE VALIDATION: Block users from challenging themselves
-                    if opponent_id == challenger_id:
-                        print(f"User {challenger_id} tried to challenge themselves")
-                        try:
-                            client.create_tweet(
-                                text="❌ You can't challenge yourself! Pick a friend to play against.",
-                                in_reply_to_tweet_id=tweet.id
-                            )
-                        except:
-                            pass
-                        continue  # Skip game creation
-
-                    # BOT-CHALLENGE VALIDATION: Block users from challenging the bot
-                    if BOT_USER_ID and opponent_id == BOT_USER_ID:
-                        print(f"User {challenger_id} tried to challenge the bot")
-                        try:
-                            client.create_tweet(
-                                text="❌ You can't challenge me! I'm the referee, not a player! 🤖",
-                                in_reply_to_tweet_id=tweet.id
-                            )
-                        except:
-                            pass
-                        continue  # Skip game creation
-
-                    print(f"Challenge: {challenger_username} vs {opponent_username}")
-
-                    board1 = create_new_board()
-                    board2 = create_new_board()
-
-                    thread_id = str(tweet.conversation_id) if hasattr(tweet, 'conversation_id') else str(tweet.id)
-
-                    game_id = create_game(challenger_id, opponent_id, board1, board2, thread_id)
-
-                    print(f"Created game with thread_id {game_id}")
-
-                    blank_board = [[0 for _ in range(6)] for _ in range(6)]
-                    p1_theme_color = '#2C2C2C'  # Black for Player 1
-                    image_filename = generate_board_image(
-                        blank_board,
-                        f"@{challenger_username}",
-                        p1_theme_color
-                    )
-
-                    # Get the post number for this bot tweet
-                    post_number = increment_bot_post_count(thread_id)
-
-                    # Get the game data to determine who goes first (random selection)
-                    game_data = get_game_by_thread_id(thread_id)
-                    game_number = game_data.get('game_number', 1) if game_data else 1
-
-                    # Determine who goes first based on random selection in database
-                    first_turn = game_data.get('turn', 'player1') if game_data else 'player1'
-                    if first_turn == 'player1':
-                        first_player_username = challenger_username
-                    else:
-                        first_player_username = opponent_username
-
-                    # Log game creation with first player info
-                    logger.info(f"Game created: {thread_id}, {challenger_username} vs {opponent_username}, first player: {first_player_username}")
-
-                    reply_text = (
-                        f"{post_number}/ ⚔️ Game #{game_number} has begun! ⚔️\n\n"
-                        f"@{challenger_username} vs. @{opponent_username}\n\n"
-                        f"📍 How to play:\n"
-                        f"• Reply with: fire [coordinate]\n"
-                        f"• Example: fire A1\n"
-                        f"• Grid: A-F (rows) × 1-6 (columns)\n\n"
-                        f"@{first_player_username}, you're up first! 🎯"
-                    )
-
-                    # Upload image to Twitter using v1.1 API
-                    import tweepy
-                    auth = tweepy.OAuth1UserHandler(
-                        os.getenv("X_API_KEY"),
-                        os.getenv("X_API_SECRET"),
-                        os.getenv("X_ACCESS_TOKEN"),
-                        os.getenv("X_ACCESS_TOKEN_SECRET")
-                    )
-                    api = tweepy.API(auth)
-                    media = api.media_upload(image_filename)
-
-                    reply = client.create_tweet(
-                        text=reply_text,
-                        in_reply_to_tweet_id=tweet.id,
-                        media_ids=[media.media_id]
-                    )
-
-                    print(f"Posted reply tweet {reply.data['id']}")
-                    print("Game started successfully!")
-
-            else:
-                print("No new challenges found")
-
-            # Check for fire commands and update last_fire_tweet_id
-            last_fire_tweet_id = handle_fire_command(last_fire_tweet_id)
-
-        except Exception as e:
-            print(f"Error in main loop: {e}")
-            logger.error(f"Error in main loop: {e}")
-            print("Continuing to next poll cycle...")
-
-        # Wait 60 seconds before polling again
-        print("\nWaiting 60 seconds before next poll...")
-        time.sleep(60)
-
-
+        number = int(coordinate[1:])
+    except ValueError:
+        return 'miss'
+    
+    # Convert to grid coordinates (A-F, 1-6)
+    if letter < 'A' or letter > 'F' or number < 1 or number > 6:
+        return 'miss'
+    
+    row = ord(letter) - ord('A')
+    col = number - 1
+    
+    grid = grid_data['grid']
+    ships = grid_data['ships']
+    ship_names = grid_data['ship_names']
+    
+    # Check if already hit/missed
+    cell_value = grid[row][col]
+    
+    if cell_value == -1:  # Already missed
+        return 'miss'
+    elif cell_value == -2:  # Already hit
+        return 'hit'
+    elif cell_value == 0:  # Water
+        grid[row][col] = -1  # Mark as miss
+        return 'miss'
+    else:  # Hit a ship
+        ship_id = cell_value
+        grid[row][col] = -2  # Mark as hit
+        
+        # Check if ship is sunk
+        ship_coordinates = ships[ship_id]
+        for ship_row, ship_col in ship_coordinates:
+            if grid[ship_row][ship_col] != -2:  # Found unhit part
+                return 'hit'
+        
+        # All parts hit - ship is sunk, return ship name
+        return ship_names[ship_id]
+
+
+# Minimal test
 if __name__ == "__main__":
-    main_loop()
+    game_data = place_dinghies()
+    print(f"Placed {len(game_data['ships'])} ships on 6x6 grid")
+    
+    result = process_shot(game_data, "A1")
+    print(f"Shot at A1: {result}")

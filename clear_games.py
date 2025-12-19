@@ -12,3 +12,7 @@ if __name__ == "__main__":
     print(f"✓ Deleted {deleted_count} game(s) from the database")
 
 
+
+
+
+
