@@ -294,12 +294,26 @@ Test coverage includes:
 
 ## Deployment
 
-### Running on a Server
+### Cloud Hosting (Recommended)
+
+For production deployment, use a cloud hosting platform. See **[DEPLOYMENT.md](DEPLOYMENT.md)** for detailed instructions.
+
+**Quick Start Options:**
+- **Railway** (Easiest): Connect GitHub repo, add env vars, deploy
+- **Render** (Free tier): Create Background Worker, configure, deploy
+- **DigitalOcean**: App Platform worker service
+
+All deployment files are included:
+- `Procfile` - Tells platform how to run the bot
+- `runtime.txt` - Specifies Python version
+- `DEPLOYMENT.md` - Complete deployment guide
+
+### Running on a Local Server
 
 1. **Use screen or tmux**:
 ```bash
 screen -S battle_dinghy
-python bot.py
+python main_polling.py
 # Press Ctrl+A, then D to detach
 ```
 
@@ -314,7 +328,7 @@ After=network.target
 Type=simple
 User=your_user
 WorkingDirectory=/path/to/battle_dinghy
-ExecStart=/path/to/.venv/bin/python bot.py
+ExecStart=/path/to/.venv/bin/python main_polling.py
 Restart=always
 
 [Install]
@@ -323,7 +337,7 @@ WantedBy=multi-user.target
 
 3. **Use PM2** (Node.js required):
 ```bash
-pm2 start bot.py --interpreter python
+pm2 start main_polling.py --interpreter python
 pm2 save
 pm2 startup
 ```
