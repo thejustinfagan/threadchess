@@ -6,6 +6,133 @@ Generates mobile-optimized PNG images for public Battleship games on Twitter
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import math
+import tempfile
+import os
+
+
+def generate_board_image(board, player_name, theme_color='#2C2C2C', ships_remaining=None):
+    """
+    Generate a single-board game image for Twitter.
+
+    This is the main function used by main_polling.py.
+
+    Args:
+        board: 6x6 grid with cell values (0=water, 2-4=ships, 9=miss, 1/12-14=hit)
+        player_name: Display name (e.g., "@username")
+        theme_color: Hex color for board theme (default dark gray)
+        ships_remaining: Optional dict with ship status {'total': int, 'big': bool, ...}
+
+    Returns:
+        str: Path to the generated PNG image file
+    """
+    # Constants
+    WIDTH = 400
+    HEIGHT = 500
+    CELL_SIZE = 50
+    GRID_SIZE = 6
+    BOARD_WIDTH = CELL_SIZE * GRID_SIZE
+
+    # Colors
+    BG_COLOR = (15, 20, 30)
+    WATER_COLOR1 = (30, 60, 120)
+    WATER_COLOR2 = (40, 80, 140)
+    SHIP_COLOR1 = (80, 85, 90)
+    SHIP_COLOR2 = (60, 65, 70)
+    MISS_COLOR = (50, 180, 80)
+    HIT_COLOR = (255, 100, 50)
+    TEXT_COLOR = (255, 255, 255)
+
+    # Parse theme color
+    if theme_color.startswith('#'):
+        theme_rgb = tuple(int(theme_color[i:i+2], 16) for i in (1, 3, 5))
+    else:
+        theme_rgb = (44, 44, 44)
+
+    img = Image.new('RGB', (WIDTH, HEIGHT), BG_COLOR)
+    draw = ImageDraw.Draw(img)
+
+    # Font setup
+    try:
+        font_large = ImageFont.truetype("arial.ttf", 18)
+        font_medium = ImageFont.truetype("arial.ttf", 14)
+        font_small = ImageFont.truetype("arial.ttf", 11)
+    except:
+        font_large = ImageFont.load_default()
+        font_medium = ImageFont.load_default()
+        font_small = ImageFont.load_default()
+
+    def draw_gradient_square(x, y, size, color1, color2):
+        for i in range(size):
+            ratio = i / size
+            r = int(color1[0] + (color2[0] - color1[0]) * ratio)
+            g = int(color1[1] + (color2[1] - color1[1]) * ratio)
+            b = int(color1[2] + (color2[2] - color1[2]) * ratio)
+            draw.line([(x, y + i), (x + size - 1, y + i)], fill=(r, g, b))
+
+    def draw_explosion(x, y, size):
+        center_x = x + size // 2
+        center_y = y + size // 2
+        for angle in range(0, 360, 30):
+            rad = math.radians(angle)
+            x1 = center_x + int(math.cos(rad) * size * 0.4)
+            y1 = center_y + int(math.sin(rad) * size * 0.4)
+            draw.line([(center_x, center_y), (x1, y1)], fill=(255, 200, 0), width=2)
+        draw.ellipse([x + size//4, y + size//4, x + 3*size//4, y + 3*size//4], fill=(255, 140, 0))
+        draw.ellipse([x + size//3, y + size//3, x + 2*size//3, y + 2*size//3], fill=(255, 50, 30))
+
+    # Header
+    y_pos = 20
+    draw.text((20, y_pos), player_name, font=font_large, fill=TEXT_COLOR)
+
+    # Ship status if provided
+    if ships_remaining:
+        status_text = f"Ships: {ships_remaining.get('total', '?')}/3"
+        draw.text((WIDTH - 100, y_pos), status_text, font=font_medium, fill=(180, 180, 200))
+
+    y_pos += 40
+
+    # Board position
+    board_x = (WIDTH - BOARD_WIDTH) // 2
+    board_y = y_pos + 30
+
+    # Column labels (1-6)
+    for j in range(GRID_SIZE):
+        draw.text((board_x + j * CELL_SIZE + 20, board_y - 20), str(j + 1), font=font_small, fill=(120, 120, 140))
+
+    # Row labels (A-F)
+    for i in range(GRID_SIZE):
+        label = chr(65 + i)
+        draw.text((board_x - 20, board_y + i * CELL_SIZE + 15), label, font=font_small, fill=(120, 120, 140))
+
+    # Draw grid cells
+    for i in range(GRID_SIZE):
+        for j in range(GRID_SIZE):
+            x = board_x + j * CELL_SIZE
+            y = board_y + i * CELL_SIZE
+            cell = board[i][j]
+
+            # Cell values: 0=water, 2-4=ships, 9=miss, 1=hit, 12-14=hit ships
+            if cell == 0:
+                draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, WATER_COLOR1, WATER_COLOR2)
+            elif cell == 9:
+                draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, WATER_COLOR1, WATER_COLOR2)
+                draw.ellipse([x + 12, y + 12, x + CELL_SIZE - 12, y + CELL_SIZE - 12], fill=MISS_COLOR, outline=(30, 140, 60), width=2)
+            elif cell == 1 or cell >= 12:
+                draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, SHIP_COLOR1, SHIP_COLOR2)
+                draw_explosion(x + 5, y + 5, CELL_SIZE - 10)
+            elif cell in [2, 3, 4]:
+                draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, SHIP_COLOR1, SHIP_COLOR2)
+
+            draw.rectangle([x, y, x + CELL_SIZE, y + CELL_SIZE], outline=(40, 50, 60), width=1)
+
+    # Watermark
+    draw.text((WIDTH - 100, HEIGHT - 25), "@battle_dinghy", font=font_small, fill=(80, 90, 100))
+
+    # Save to temp file
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+    img.save(temp_file.name, format='PNG', optimize=True)
+
+    return temp_file.name
 
 def generate_battle_dinghy_image(
     player1_board: list[list[str]],  # 6x6, values: 'water'|'miss'|'hit'|'ship'
