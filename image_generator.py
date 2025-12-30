@@ -168,7 +168,7 @@ def generate_battle_dinghy_image(
                     if show_ships:
                         draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4,
                                            SHIP_COLOR1, SHIP_COLOR2)
-            else:
+                    else:
                         draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4,
                                            WATER_COLOR1, WATER_COLOR2)
                     # Explosion effect

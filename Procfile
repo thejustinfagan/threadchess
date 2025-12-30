@@ -1,2 +1,2 @@
-worker: python main_polling.py
+worker: python main.py
 
