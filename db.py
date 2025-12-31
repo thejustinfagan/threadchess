@@ -8,6 +8,13 @@ load_dotenv()
 # Initialize Supabase client
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+# Debug: Print env var info (without revealing full values)
+print(f"DEBUG: SUPABASE_URL is {'set' if SUPABASE_URL else 'NOT SET'}")
+print(f"DEBUG: SUPABASE_URL length: {len(SUPABASE_URL) if SUPABASE_URL else 0}")
+print(f"DEBUG: SUPABASE_URL first 10 chars: {SUPABASE_URL[:10] if SUPABASE_URL and len(SUPABASE_URL) > 10 else SUPABASE_URL}")
+print(f"DEBUG: SUPABASE_KEY is {'set' if SUPABASE_KEY else 'NOT SET'}")
+
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
