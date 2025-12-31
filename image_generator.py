@@ -10,25 +10,25 @@ import tempfile
 import os
 
 
-def generate_board_image(board, attacker_name, defender_name=None, theme_color='#2C2C2C', ships_remaining=None):
+def generate_board_image(board, defender_name, theme_color='#2C2C2C', ships_status=None):
     """
     Generate a single-board game image for Twitter.
 
     Args:
         board: 6x6 grid with cell values (0=water, 2-4=ships, 9=miss, 1/12-14=hit)
-        attacker_name: Display name of who is FIRING at this board (e.g., "@Chief_of_YOLO")
-        defender_name: Optional - whose ships are on this board (for display purposes)
+        defender_name: Display name of whose FLEET this is (e.g., "@thejustinfagan")
         theme_color: Hex color for board theme
             - '#1A1A1A' (near-black) for Player 1's board
             - '#4A4A4A' (slate gray) for Player 2's board
-        ships_remaining: Optional dict with ship status {'total': int, 'big': bool, ...}
+        ships_status: Optional dict with ship status
+            {'big': {'hits': 0-3, 'sunk': bool}, 'medium': {...}, 'small': {...}}
 
     Returns:
         str: Path to the generated PNG image file
     """
     # Constants
     WIDTH = 400
-    HEIGHT = 500
+    HEIGHT = 520
     CELL_SIZE = 50
     GRID_SIZE = 6
     BOARD_WIDTH = CELL_SIZE * GRID_SIZE
@@ -58,23 +58,26 @@ def generate_board_image(board, attacker_name, defender_name=None, theme_color='
         ACCENT_COLOR = (200, 160, 80)  # Gold accent
 
     # Common colors
-    SHIP_COLOR1 = (80, 85, 95)
-    SHIP_COLOR2 = (60, 65, 75)
+    SHIP_COLOR = (100, 105, 115)
+    SHIP_HIT_COLOR = (200, 80, 60)
+    SHIP_SUNK_COLOR = (120, 40, 40)
     MISS_COLOR = (50, 180, 80)
     TEXT_COLOR = (255, 255, 255)
-    LABEL_COLOR = (255, 255, 255)  # Pure white for maximum visibility
+    LABEL_COLOR = (255, 255, 255)
 
     img = Image.new('RGB', (WIDTH, HEIGHT), BG_COLOR)
     draw = ImageDraw.Draw(img)
 
-    # Font setup - MUCH LARGER for mobile readability
+    # Font setup
     try:
-        font_title = ImageFont.truetype("arial.ttf", 20)
-        font_label = ImageFont.truetype("arial.ttf", 22)  # BIG axis labels
-        font_small = ImageFont.truetype("arial.ttf", 12)
+        font_title = ImageFont.truetype("arial.ttf", 18)
+        font_label = ImageFont.truetype("arial.ttf", 20)  # Big axis labels
+        font_ship = ImageFont.truetype("arial.ttf", 11)
+        font_small = ImageFont.truetype("arial.ttf", 10)
     except:
         font_title = ImageFont.load_default()
         font_label = ImageFont.load_default()
+        font_ship = ImageFont.load_default()
         font_small = ImageFont.load_default()
 
     def draw_gradient_square(x, y, size, color1, color2):
@@ -96,35 +99,85 @@ def generate_board_image(board, attacker_name, defender_name=None, theme_color='
         draw.ellipse([x + size//4, y + size//4, x + 3*size//4, y + 3*size//4], fill=(255, 140, 0))
         draw.ellipse([x + size//3, y + size//3, x + 2*size//3, y + 2*size//3], fill=(255, 50, 30))
 
+    def draw_ship_indicator(x, y, size, hits, is_sunk):
+        """Draw a ship segment indicator showing damage status."""
+        segment_width = 18
+        segment_height = 14
+        gap = 3
+
+        for i in range(size):
+            seg_x = x + i * (segment_width + gap)
+            if is_sunk:
+                color = SHIP_SUNK_COLOR
+            elif i < hits:
+                color = SHIP_HIT_COLOR
+            else:
+                color = SHIP_COLOR
+
+            # Draw rounded segment
+            draw.rounded_rectangle(
+                [seg_x, y, seg_x + segment_width, y + segment_height],
+                radius=3,
+                fill=color,
+                outline=(40, 45, 55) if not is_sunk else (80, 30, 30)
+            )
+
+            # Draw hit marker (X) on damaged segments
+            if i < hits and not is_sunk:
+                draw.line([(seg_x + 4, y + 3), (seg_x + segment_width - 4, y + segment_height - 3)],
+                         fill=(255, 255, 255), width=2)
+                draw.line([(seg_x + segment_width - 4, y + 3), (seg_x + 4, y + segment_height - 3)],
+                         fill=(255, 255, 255), width=2)
+
     # Accent bar at top
-    draw.rectangle([0, 0, WIDTH, 6], fill=ACCENT_COLOR)
+    draw.rectangle([0, 0, WIDTH, 5], fill=ACCENT_COLOR)
 
-    # Header: "{attacker}, fire!"
-    y_pos = 15
-    header_text = f"{attacker_name}, fire!"
-    draw.text((20, y_pos), header_text, font=font_title, fill=TEXT_COLOR)
+    # Header: "{defender}'s Fleet"
+    y_pos = 12
+    header_text = f"{defender_name}'s Fleet"
+    draw.text((15, y_pos), header_text, font=font_title, fill=TEXT_COLOR)
 
-    # Ship status if provided (top right)
-    if ships_remaining:
-        status_text = f"Ships: {ships_remaining.get('total', '?')}/3"
-        draw.text((WIDTH - 115, y_pos + 2), status_text, font=font_small, fill=(180, 180, 200))
+    y_pos += 28
 
-    y_pos += 35
+    # Ship status display (if provided)
+    if ships_status:
+        # Draw ship indicators in a row
+        ship_y = y_pos
+        x_pos = 15
 
-    # Board position - leave room for big labels
-    board_x = 60  # Fixed left margin for row labels
-    board_y = y_pos + 40
+        # Big Dinghy (3 segments)
+        draw.text((x_pos, ship_y), "Big:", font=font_ship, fill=(150, 150, 170))
+        big_info = ships_status.get('big', {'hits': 0, 'sunk': False})
+        draw_ship_indicator(x_pos + 30, ship_y, 3, big_info.get('hits', 0), big_info.get('sunk', False))
 
-    # Column labels (1-6) - BIG WHITE NUMBERS
+        # Dinghy (2 segments)
+        x_pos = 145
+        draw.text((x_pos, ship_y), "Med:", font=font_ship, fill=(150, 150, 170))
+        med_info = ships_status.get('medium', {'hits': 0, 'sunk': False})
+        draw_ship_indicator(x_pos + 32, ship_y, 2, med_info.get('hits', 0), med_info.get('sunk', False))
+
+        # Small Dinghy (1 segment)
+        x_pos = 255
+        draw.text((x_pos, ship_y), "Sm:", font=font_ship, fill=(150, 150, 170))
+        small_info = ships_status.get('small', {'hits': 0, 'sunk': False})
+        draw_ship_indicator(x_pos + 25, ship_y, 1, small_info.get('hits', 0), small_info.get('sunk', False))
+
+        y_pos += 25
+
+    # Board position
+    board_x = 55
+    board_y = y_pos + 35
+
+    # Column labels (1-6)
     for j in range(GRID_SIZE):
-        label_x = board_x + j * CELL_SIZE + (CELL_SIZE // 2) - 6
-        draw.text((label_x, board_y - 30), str(j + 1), font=font_label, fill=LABEL_COLOR)
+        label_x = board_x + j * CELL_SIZE + (CELL_SIZE // 2) - 5
+        draw.text((label_x, board_y - 25), str(j + 1), font=font_label, fill=LABEL_COLOR)
 
-    # Row labels (A-F) - BIG WHITE LETTERS
+    # Row labels (A-F)
     for i in range(GRID_SIZE):
         label = chr(65 + i)
-        label_y = board_y + i * CELL_SIZE + (CELL_SIZE // 2) - 12
-        draw.text((board_x - 35, label_y), label, font=font_label, fill=LABEL_COLOR)
+        label_y = board_y + i * CELL_SIZE + (CELL_SIZE // 2) - 10
+        draw.text((board_x - 30, label_y), label, font=font_label, fill=LABEL_COLOR)
 
     # Draw grid cells
     for i in range(GRID_SIZE):
@@ -141,18 +194,18 @@ def generate_board_image(board, attacker_name, defender_name=None, theme_color='
                 draw.ellipse([x + 12, y + 12, x + CELL_SIZE - 12, y + CELL_SIZE - 12],
                            fill=MISS_COLOR, outline=(30, 140, 60), width=2)
             elif cell == 1 or cell >= 12:
-                draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, SHIP_COLOR1, SHIP_COLOR2)
+                draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, (70, 75, 85), (50, 55, 65))
                 draw_explosion(x + 5, y + 5, CELL_SIZE - 10)
             elif cell in [2, 3, 4]:
-                draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, SHIP_COLOR1, SHIP_COLOR2)
+                draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, (70, 75, 85), (50, 55, 65))
 
             draw.rectangle([x, y, x + CELL_SIZE, y + CELL_SIZE], outline=GRID_LINE_COLOR, width=1)
 
     # Bottom accent bar
-    draw.rectangle([0, HEIGHT - 6, WIDTH, HEIGHT], fill=ACCENT_COLOR)
+    draw.rectangle([0, HEIGHT - 5, WIDTH, HEIGHT], fill=ACCENT_COLOR)
 
     # Watermark
-    draw.text((WIDTH - 105, HEIGHT - 28), "@battle_dinghy", font=font_small, fill=(100, 110, 130))
+    draw.text((WIDTH - 100, HEIGHT - 22), "@battle_dinghy", font=font_small, fill=(80, 90, 110))
 
     # Save to temp file
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')

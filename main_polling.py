@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'spec.md'))
 
 # Import our game modules
-from game_logic import create_new_board, process_shot, copy_board, get_ships_remaining, count_hits_and_misses
+from game_logic import create_new_board, process_shot, copy_board, get_ships_remaining, count_hits_and_misses, get_detailed_ship_status
 from image_generator import generate_board_image
 from db import (
     create_game, get_game_by_thread_id, get_game_robust, update_game_after_shot,
@@ -253,14 +253,16 @@ def process_fire_tweet(tweet, game_data, author_username, opponent_username):
     # Get scoreboard stats
     hits, misses = count_hits_and_misses(updated_board)
 
-    # Generate the result image showing the updated board
-    # This is shown AFTER a shot - the author just fired, so show their result
+    # Get detailed ship status for visual display
+    ship_status = get_detailed_ship_status(updated_board)
+
+    # Generate the result image showing the DEFENDER's fleet (opponent_username)
+    # The board shows whose ships are being attacked
     result_image = generate_board_image(
         updated_board,
-        f"@{author_username}",  # Who just fired
-        None,  # defender_name not needed for result display
+        f"@{opponent_username}",  # Whose fleet this is (defender)
         shooter_board_theme,
-        ships_remaining
+        ship_status
     )
 
     print(f"Generated result image: {result_image}")
@@ -325,17 +327,17 @@ def process_fire_tweet(tweet, game_data, author_username, opponent_username):
             opponent_board = game_data['player2_board']
             opponent_board_theme = p2_theme  # Gray
 
-        # Get opponent's ship status
-        opponent_ships = get_ships_remaining(opponent_board)
+        # Get detailed ship status for visual display
+        next_turn_ship_status = get_detailed_ship_status(opponent_board)
 
         # Generate board image for the NEXT player's turn
-        # opponent_username is who will fire NEXT, so they are the attacker
+        # opponent_username will fire next at author_username's fleet
+        # So we show author_username's fleet (the new defender)
         opponent_image = generate_board_image(
             opponent_board,
-            f"@{opponent_username}",  # Who will fire next (attacker)
-            None,  # defender_name
+            f"@{author_username}",  # Whose fleet this is (author is now defender)
             opponent_board_theme,
-            opponent_ships
+            next_turn_ship_status
         )
 
         print(f"Generated opponent image: {opponent_image}")
@@ -849,21 +851,23 @@ def main_loop():
                     first_turn = game_data.get('turn', 'player1') if game_data else 'player1'
                     if first_turn == 'player1':
                         first_player_username = challenger_username
-                        # P1 fires first at P2's board (gray theme)
-                        target_theme = '#4A4A4A'
+                        # P1 fires first at P2's fleet (opponent's fleet)
+                        defender_username = opponent_username
+                        target_theme = '#4A4A4A'  # Gray theme for P2's board
                     else:
                         first_player_username = opponent_username
-                        # P2 fires first at P1's board (dark theme)
-                        target_theme = '#1A1A1A'
+                        # P2 fires first at P1's fleet (challenger's fleet)
+                        defender_username = challenger_username
+                        target_theme = '#1A1A1A'  # Dark theme for P1's board
 
                     # Generate the starting board image
-                    # Show who is firing (the first player)
+                    # Show the DEFENDER's fleet (whose ships are being targeted)
                     blank_board = [[0 for _ in range(6)] for _ in range(6)]
                     image_filename = generate_board_image(
                         blank_board,
-                        f"@{first_player_username}",  # Who is firing first
-                        None,  # defender_name
+                        f"@{defender_username}",  # Whose fleet this is
                         target_theme
+                        # No ship_status for blank starting board
                     )
 
                     # Log game creation with first player info

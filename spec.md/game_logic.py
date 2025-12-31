@@ -229,6 +229,55 @@ def get_ships_remaining(board):
     return ships_status
 
 
+def get_detailed_ship_status(board):
+    """
+    Get detailed hit/sunk status for each ship type on a board.
+
+    Board values: 0=water, 2=Small Dinghy, 3=Dinghy, 4=Big Dinghy, 9=miss
+                  12=hit Small, 13=hit Dinghy, 14=hit Big
+
+    Args:
+        board: 6x6 grid with ship positions and hit/miss markers
+
+    Returns:
+        dict: {
+            'big': {'hits': 0-3, 'sunk': bool, 'size': 3},
+            'medium': {'hits': 0-2, 'sunk': bool, 'size': 2},
+            'small': {'hits': 0-1, 'sunk': bool, 'size': 1}
+        }
+    """
+    # Ship definitions: (display_key, ship_id, size)
+    ships = [
+        ('big', 4, 3),     # Big Dinghy: id=4, size=3
+        ('medium', 3, 2),  # Dinghy: id=3, size=2
+        ('small', 2, 1),   # Small Dinghy: id=2, size=1
+    ]
+
+    result = {}
+
+    for key, ship_id, size in ships:
+        unhit_count = 0
+        hit_count = 0
+
+        for row in board:
+            for cell in row:
+                if cell == ship_id:  # Unhit ship segment
+                    unhit_count += 1
+                elif cell == (10 + ship_id):  # Hit ship segment
+                    hit_count += 1
+
+        # Ship is sunk if all segments are hit (no unhit segments remain)
+        is_sunk = (unhit_count == 0 and hit_count > 0)
+
+        result[key] = {
+            'hits': hit_count,
+            'sunk': is_sunk,
+            'size': size
+        }
+
+    return result
+
+
 def count_hits_and_misses(board):
     """
     Count the number of hits and misses on a board.
