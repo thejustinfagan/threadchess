@@ -641,8 +641,9 @@ def main_loop():
                             break
                     
                     # Challenge phrases (3 points)
-                    challenge_phrases = ['start game', 'new game', 'begin match', '1v1', 'one on one', 
-                                        'you and me', 'with me']
+                    challenge_phrases = ['start game', 'new game', 'begin match', '1v1', 'one on one',
+                                        'you and me', 'with me', 'challenge you', 'i challenge',
+                                        'game of', 'play a game', 'to a game', 'battleship', 'battle dinghy']
                     for phrase in challenge_phrases:
                         if phrase in text_without_bot:
                             confidence_score += 3
@@ -685,10 +686,11 @@ def main_loop():
                     mentions = []
                     words = tweet_text.split()
                     for word in words:
-                        if word.startswith('@') and word.lower() != f'@{BOT_USERNAME}'.lower():
+                        if word.startswith('@'):
                             # Strip @ from start AND punctuation from end
                             clean_username = word.lstrip('@').rstrip(',:;!?.')
-                            if clean_username:  # Make sure something remains
+                            # Skip the bot's username (case-insensitive)
+                            if clean_username and clean_username.lower() != BOT_USERNAME.lower():
                                 mentions.append(clean_username)
 
                     if not mentions:
@@ -766,9 +768,41 @@ def main_loop():
 
                     thread_id = str(tweet.conversation_id) if hasattr(tweet, 'conversation_id') else str(tweet.id)
 
-                    game_id = create_game(challenger_id, opponent_id, board1, board2, thread_id)
-
-                    print(f"Created game with thread_id {game_id}")
+                    # Create game with error handling
+                    try:
+                        game_id = create_game(challenger_id, opponent_id, board1, board2, thread_id)
+                        print(f"Created game with thread_id {game_id}")
+                    except Exception as e:
+                        error_msg = str(e)
+                        print(f"Failed to create game: {error_msg}")
+                        logger.error(f"Failed to create game: {error_msg}")
+                        
+                        # Reply to user with helpful error message
+                        if "Could not connect to database" in error_msg or "getaddrinfo" in error_msg:
+                            reply_text = (
+                                "❌ Database connection error. "
+                                "The bot is having trouble connecting to the database. "
+                                "Please try again in a moment!"
+                            )
+                        elif "Could not authenticate" in error_msg or "401" in error_msg:
+                            reply_text = (
+                                "❌ Database authentication error. "
+                                "Please contact the bot administrator."
+                            )
+                        else:
+                            reply_text = (
+                                "❌ Error creating game. "
+                                "Please try again in a moment!"
+                            )
+                        
+                        try:
+                            client.create_tweet(
+                                text=reply_text,
+                                in_reply_to_tweet_id=tweet.id
+                            )
+                        except:
+                            pass  # Don't fail if reply doesn't work
+                        continue  # Skip to next tweet
 
                     blank_board = [[0 for _ in range(6)] for _ in range(6)]
                     p1_theme_color = '#2C2C2C'  # Black for Player 1
