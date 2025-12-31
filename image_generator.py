@@ -18,8 +18,10 @@ def generate_board_image(board, player_name, theme_color='#2C2C2C', ships_remain
 
     Args:
         board: 6x6 grid with cell values (0=water, 2-4=ships, 9=miss, 1/12-14=hit)
-        player_name: Display name (e.g., "@username")
-        theme_color: Hex color for board theme (default dark gray)
+        player_name: Display name (e.g., "@username") - this is the DEFENDER whose ships are shown
+        theme_color: Hex color for board theme
+            - '#1A1A1A' (near-black) for Player 1's board
+            - '#3A3A3A' (slate gray) for Player 2's board
         ships_remaining: Optional dict with ship status {'total': int, 'big': bool, ...}
 
     Returns:
@@ -32,33 +34,52 @@ def generate_board_image(board, player_name, theme_color='#2C2C2C', ships_remain
     GRID_SIZE = 6
     BOARD_WIDTH = CELL_SIZE * GRID_SIZE
 
-    # Colors
-    BG_COLOR = (15, 20, 30)
-    WATER_COLOR1 = (30, 60, 120)
-    WATER_COLOR2 = (40, 80, 140)
-    SHIP_COLOR1 = (80, 85, 90)
-    SHIP_COLOR2 = (60, 65, 70)
-    MISS_COLOR = (50, 180, 80)
-    HIT_COLOR = (255, 100, 50)
-    TEXT_COLOR = (255, 255, 255)
-
-    # Parse theme color
+    # Parse theme color to determine board style
     if theme_color.startswith('#'):
         theme_rgb = tuple(int(theme_color[i:i+2], 16) for i in (1, 3, 5))
     else:
         theme_rgb = (44, 44, 44)
 
+    # Determine if this is Player 1 (dark/black) or Player 2 (gray) board
+    # Player 1 boards use darker colors, Player 2 uses lighter grays
+    is_dark_theme = sum(theme_rgb) < 150  # Dark if RGB sum is low
+
+    if is_dark_theme:
+        # Player 1's board (BLACK theme) - opponent fires at this
+        BG_COLOR = (12, 12, 18)  # Very dark navy-black
+        WATER_COLOR1 = (20, 45, 90)  # Dark blue
+        WATER_COLOR2 = (30, 60, 110)  # Slightly lighter blue
+        GRID_LINE_COLOR = (50, 60, 80)
+        LABEL_COLOR = (200, 200, 220)  # Bright white-blue for visibility
+        ACCENT_COLOR = (70, 130, 200)  # Blue accent
+    else:
+        # Player 2's board (GRAY theme) - opponent fires at this
+        BG_COLOR = (25, 28, 35)  # Dark gray with slight blue
+        WATER_COLOR1 = (45, 75, 120)  # Medium blue
+        WATER_COLOR2 = (55, 90, 140)  # Lighter blue
+        GRID_LINE_COLOR = (70, 80, 100)
+        LABEL_COLOR = (255, 220, 150)  # Warm gold/yellow for visibility
+        ACCENT_COLOR = (200, 160, 80)  # Gold accent
+
+    # Common colors
+    SHIP_COLOR1 = (80, 85, 95)
+    SHIP_COLOR2 = (60, 65, 75)
+    MISS_COLOR = (50, 180, 80)  # Green splash
+    TEXT_COLOR = (255, 255, 255)
+
     img = Image.new('RGB', (WIDTH, HEIGHT), BG_COLOR)
     draw = ImageDraw.Draw(img)
 
-    # Font setup
+    # Font setup - LARGER sizes for readability
     try:
+        font_title = ImageFont.truetype("arial.ttf", 22)
         font_large = ImageFont.truetype("arial.ttf", 18)
-        font_medium = ImageFont.truetype("arial.ttf", 14)
-        font_small = ImageFont.truetype("arial.ttf", 11)
+        font_label = ImageFont.truetype("arial.ttf", 16)  # Bigger axis labels
+        font_small = ImageFont.truetype("arial.ttf", 12)
     except:
+        font_title = ImageFont.load_default()
         font_large = ImageFont.load_default()
-        font_medium = ImageFont.load_default()
+        font_label = ImageFont.load_default()
         font_small = ImageFont.load_default()
 
     def draw_gradient_square(x, y, size, color1, color2):
@@ -80,29 +101,36 @@ def generate_board_image(board, player_name, theme_color='#2C2C2C', ships_remain
         draw.ellipse([x + size//4, y + size//4, x + 3*size//4, y + 3*size//4], fill=(255, 140, 0))
         draw.ellipse([x + size//3, y + size//3, x + 2*size//3, y + 2*size//3], fill=(255, 50, 30))
 
-    # Header
-    y_pos = 20
-    draw.text((20, y_pos), player_name, font=font_large, fill=TEXT_COLOR)
+    # Header with accent bar
+    y_pos = 15
+
+    # Accent bar at top
+    draw.rectangle([0, 0, WIDTH, 5], fill=ACCENT_COLOR)
+
+    # Player name (whose board this is)
+    draw.text((20, y_pos), player_name, font=font_title, fill=TEXT_COLOR)
 
     # Ship status if provided
     if ships_remaining:
         status_text = f"Ships: {ships_remaining.get('total', '?')}/3"
-        draw.text((WIDTH - 100, y_pos), status_text, font=font_medium, fill=(180, 180, 200))
+        draw.text((WIDTH - 110, y_pos + 4), status_text, font=font_large, fill=(180, 180, 200))
 
-    y_pos += 40
+    y_pos += 45
 
-    # Board position
-    board_x = (WIDTH - BOARD_WIDTH) // 2
-    board_y = y_pos + 30
+    # Board position - more padding for larger labels
+    board_x = (WIDTH - BOARD_WIDTH) // 2 + 10  # Shift right slightly for row labels
+    board_y = y_pos + 35
 
-    # Column labels (1-6)
+    # Column labels (1-6) - LARGER and BRIGHTER
     for j in range(GRID_SIZE):
-        draw.text((board_x + j * CELL_SIZE + 20, board_y - 20), str(j + 1), font=font_small, fill=(120, 120, 140))
+        label_x = board_x + j * CELL_SIZE + (CELL_SIZE // 2) - 5
+        draw.text((label_x, board_y - 25), str(j + 1), font=font_label, fill=LABEL_COLOR)
 
-    # Row labels (A-F)
+    # Row labels (A-F) - LARGER and BRIGHTER
     for i in range(GRID_SIZE):
         label = chr(65 + i)
-        draw.text((board_x - 20, board_y + i * CELL_SIZE + 15), label, font=font_small, fill=(120, 120, 140))
+        label_y = board_y + i * CELL_SIZE + (CELL_SIZE // 2) - 8
+        draw.text((board_x - 25, label_y), label, font=font_label, fill=LABEL_COLOR)
 
     # Draw grid cells
     for i in range(GRID_SIZE):
@@ -116,17 +144,21 @@ def generate_board_image(board, player_name, theme_color='#2C2C2C', ships_remain
                 draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, WATER_COLOR1, WATER_COLOR2)
             elif cell == 9:
                 draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, WATER_COLOR1, WATER_COLOR2)
-                draw.ellipse([x + 12, y + 12, x + CELL_SIZE - 12, y + CELL_SIZE - 12], fill=MISS_COLOR, outline=(30, 140, 60), width=2)
+                draw.ellipse([x + 12, y + 12, x + CELL_SIZE - 12, y + CELL_SIZE - 12],
+                           fill=MISS_COLOR, outline=(30, 140, 60), width=2)
             elif cell == 1 or cell >= 12:
                 draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, SHIP_COLOR1, SHIP_COLOR2)
                 draw_explosion(x + 5, y + 5, CELL_SIZE - 10)
             elif cell in [2, 3, 4]:
                 draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, SHIP_COLOR1, SHIP_COLOR2)
 
-            draw.rectangle([x, y, x + CELL_SIZE, y + CELL_SIZE], outline=(40, 50, 60), width=1)
+            draw.rectangle([x, y, x + CELL_SIZE, y + CELL_SIZE], outline=GRID_LINE_COLOR, width=1)
+
+    # Bottom accent bar
+    draw.rectangle([0, HEIGHT - 5, WIDTH, HEIGHT], fill=ACCENT_COLOR)
 
     # Watermark
-    draw.text((WIDTH - 100, HEIGHT - 25), "@battle_dinghy", font=font_small, fill=(80, 90, 100))
+    draw.text((WIDTH - 105, HEIGHT - 28), "@battle_dinghy", font=font_small, fill=(100, 110, 130))
 
     # Save to temp file
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')

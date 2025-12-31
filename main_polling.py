@@ -182,9 +182,11 @@ def process_fire_tweet(tweet, game_data, author_username, opponent_username):
     player1_id = game_data['player1_id']
     player2_id = game_data['player2_id']
 
-    # Player theme colors - Player 1 gets black, Player 2 gets gray
-    p1_theme = '#2C2C2C'  # Black for Player 1
-    p2_theme = '#808080'  # Gray for Player 2
+    # Player theme colors - distinct visual themes for each player's board
+    # P1's board (where P2 fires): Dark theme with blue accents
+    # P2's board (where P1 fires): Gray theme with gold accents
+    p1_theme = '#1A1A1A'  # Near-black for Player 1's board
+    p2_theme = '#4A4A4A'  # Slate gray for Player 2's board
 
     if author_id == player1_id:
         # Player 1 is shooting at Player 2's board
@@ -832,14 +834,6 @@ def main_loop():
                             pass  # Don't fail if reply doesn't work
                         continue  # Skip to next tweet
 
-                    blank_board = [[0 for _ in range(6)] for _ in range(6)]
-                    p1_theme_color = '#2C2C2C'  # Black for Player 1
-                    image_filename = generate_board_image(
-                        blank_board,
-                        f"@{challenger_username}",
-                        p1_theme_color
-                    )
-
                     # Get the post number for this bot tweet
                     post_number = increment_bot_post_count(thread_id)
 
@@ -851,8 +845,22 @@ def main_loop():
                     first_turn = game_data.get('turn', 'player1') if game_data else 'player1'
                     if first_turn == 'player1':
                         first_player_username = challenger_username
+                        # P1 fires first, so show P2's board (gray theme, gold accents)
+                        target_board_owner = opponent_username
+                        target_theme = '#4A4A4A'  # Gray theme for P2's board
                     else:
                         first_player_username = opponent_username
+                        # P2 fires first, so show P1's board (dark theme, blue accents)
+                        target_board_owner = challenger_username
+                        target_theme = '#1A1A1A'  # Dark theme for P1's board
+
+                    # Generate the starting board image
+                    blank_board = [[0 for _ in range(6)] for _ in range(6)]
+                    image_filename = generate_board_image(
+                        blank_board,
+                        f"@{target_board_owner}",  # Show whose board is being targeted
+                        target_theme
+                    )
 
                     # Log game creation with first player info
                     logger.info(f"Game created: {thread_id}, {challenger_username} vs {opponent_username}, first player: {first_player_username}")
