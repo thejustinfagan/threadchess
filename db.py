@@ -1,29 +1,67 @@
 import os
 import random
-from supabase import create_client
+import json
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Initialize Supabase client
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+# Get database URL from Railway (auto-injected) or local .env
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Debug: Print env var info (without revealing full values)
-print(f"DEBUG: SUPABASE_URL is {'set' if SUPABASE_URL else 'NOT SET'}")
-print(f"DEBUG: SUPABASE_URL length: {len(SUPABASE_URL) if SUPABASE_URL else 0}")
-print(f"DEBUG: SUPABASE_URL first 10 chars: {SUPABASE_URL[:10] if SUPABASE_URL and len(SUPABASE_URL) > 10 else SUPABASE_URL}")
-print(f"DEBUG: SUPABASE_KEY is {'set' if SUPABASE_KEY else 'NOT SET'}")
+if not DATABASE_URL:
+    print("ERROR: DATABASE_URL not set. Add a PostgreSQL database in Railway.")
+    print("Railway auto-injects DATABASE_URL when you add a Postgres database.")
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+def get_connection():
+    """Get a database connection."""
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+
+def init_db():
+    """Create the games table if it doesn't exist."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS games (
+            id SERIAL PRIMARY KEY,
+            game_number INTEGER,
+            player1_id TEXT,
+            player2_id TEXT,
+            player1_board JSONB,
+            player2_board JSONB,
+            turn TEXT,
+            game_state TEXT DEFAULT 'active',
+            thread_id TEXT UNIQUE,
+            bot_post_count INTEGER DEFAULT 0,
+            last_checked_tweet_id TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
+    print("Database initialized successfully")
+
+# Initialize database on import
+if DATABASE_URL:
+    try:
+        init_db()
+    except Exception as e:
+        print(f"Error initializing database: {e}")
 
 
 def get_next_game_number():
     """Get the next game number for a new game."""
     try:
-        result = supabase.table('games').select('game_number').order('game_number', desc=True).limit(1).execute()
-        if result.data and len(result.data) > 0:
-            return result.data[0]['game_number'] + 1
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT game_number FROM games ORDER BY game_number DESC LIMIT 1")
+        result = cur.fetchone()
+        cur.close()
+        conn.close()
+        if result:
+            return result['game_number'] + 1
         return 1
     except Exception as e:
         print(f"Error getting next game number: {e}")
@@ -45,25 +83,26 @@ def create_game(player1_id, player2_id, player1_board, player2_board, thread_id)
         str: The thread_id of the newly created game
     """
     game_number = get_next_game_number()
-
-    # Randomly select who goes first for fairness
     first_turn = random.choice(['player1', 'player2'])
 
-    game_data = {
-        'game_number': game_number,
-        'player1_id': player1_id,
-        'player2_id': player2_id,
-        'player1_board': player1_board,
-        'player2_board': player2_board,
-        'turn': first_turn,
-        'game_state': 'active',
-        'thread_id': thread_id,
-        'bot_post_count': 0
-    }
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO games (game_number, player1_id, player2_id, player1_board, player2_board, turn, game_state, thread_id, bot_post_count)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (thread_id) DO NOTHING
+        """, (game_number, player1_id, player2_id, json.dumps(player1_board), json.dumps(player2_board), first_turn, 'active', thread_id, 0))
+        conn.commit()
+        print(f"Successfully created game with thread_id {thread_id}")
+    except Exception as e:
+        conn.rollback()
+        print(f"Error creating game: {e}")
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
-    response = supabase.table('games').insert(game_data).execute()
-
-    # Return the thread_id for consistency with main_polling.py
     return thread_id
 
 
@@ -77,11 +116,13 @@ def get_game_state(game_id):
     Returns:
         dict: The complete game state row from the database
     """
-    response = supabase.table('games').select('*').eq('id', game_id).execute()
-
-    if response.data:
-        return response.data[0]
-    return None
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM games WHERE id = %s", (game_id,))
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+    return dict(result) if result else None
 
 
 def get_game_by_thread_id(thread_id):
@@ -94,11 +135,13 @@ def get_game_by_thread_id(thread_id):
     Returns:
         dict: The complete game state row from the database, or None if not found
     """
-    response = supabase.table('games').select('*').eq('thread_id', thread_id).execute()
-
-    if response.data:
-        return response.data[0]
-    return None
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM games WHERE thread_id = %s", (thread_id,))
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+    return dict(result) if result else None
 
 
 def get_game_robust(tweet_id, conversation_id, author_id):
@@ -131,13 +174,18 @@ def get_game_robust(tweet_id, conversation_id, author_id):
 
     # Strategy 3: Find active game where author is a player
     try:
-        response = supabase.table('games').select('*').eq('game_state', 'active').or_(
-            f'player1_id.eq.{author_id},player2_id.eq.{author_id}'
-        ).execute()
-
-        if response.data:
-            # Return most recent active game for this player
-            return response.data[0]
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT * FROM games
+            WHERE game_state = 'active' AND (player1_id = %s OR player2_id = %s)
+            ORDER BY created_at DESC LIMIT 1
+        """, (author_id, author_id))
+        result = cur.fetchone()
+        cur.close()
+        conn.close()
+        if result:
+            return dict(result)
     except Exception as e:
         print(f"Error in robust game lookup: {e}")
 
@@ -172,22 +220,25 @@ def update_game_after_shot(thread_id, board_field, updated_board, new_turn_or_st
                 print(f"Game no longer active")
                 return None
 
-        # Build update data
-        update_data = {
-            board_field: updated_board
-        }
+        conn = get_connection()
+        cur = conn.cursor()
 
         if new_turn_or_state == 'completed':
-            update_data['game_state'] = 'completed'
+            cur.execute(f"""
+                UPDATE games SET {board_field} = %s, game_state = 'completed'
+                WHERE thread_id = %s RETURNING *
+            """, (json.dumps(updated_board), thread_id))
         else:
-            update_data['turn'] = new_turn_or_state
+            cur.execute(f"""
+                UPDATE games SET {board_field} = %s, turn = %s
+                WHERE thread_id = %s RETURNING *
+            """, (json.dumps(updated_board), new_turn_or_state, thread_id))
 
-        # Update the game
-        response = supabase.table('games').update(update_data).eq('thread_id', thread_id).execute()
-
-        if response.data:
-            return response.data[0]
-        return None
+        result = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+        return dict(result) if result else None
     except Exception as e:
         print(f"Error updating game after shot: {e}")
         return None
@@ -204,18 +255,17 @@ def increment_bot_post_count(thread_id):
         int: The new post count (for use as post number)
     """
     try:
-        # Get current count
-        game = get_game_by_thread_id(thread_id)
-        if not game:
-            return 1
-
-        current_count = game.get('bot_post_count', 0)
-        new_count = current_count + 1
-
-        # Update count
-        supabase.table('games').update({'bot_post_count': new_count}).eq('thread_id', thread_id).execute()
-
-        return new_count
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE games SET bot_post_count = bot_post_count + 1
+            WHERE thread_id = %s RETURNING bot_post_count
+        """, (thread_id,))
+        result = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+        return result['bot_post_count'] if result else 1
     except Exception as e:
         print(f"Error incrementing bot post count: {e}")
         return 1
@@ -229,8 +279,13 @@ def get_active_games():
         list: List of active game records
     """
     try:
-        response = supabase.table('games').select('*').eq('game_state', 'active').execute()
-        return response.data if response.data else []
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM games WHERE game_state = 'active'")
+        results = cur.fetchall()
+        cur.close()
+        conn.close()
+        return [dict(r) for r in results] if results else []
     except Exception as e:
         print(f"Error getting active games: {e}")
         return []
@@ -246,7 +301,14 @@ def update_last_checked_tweet_id(thread_id, tweet_id):
         tweet_id: The last processed tweet ID
     """
     try:
-        supabase.table('games').update({'last_checked_tweet_id': tweet_id}).eq('thread_id', thread_id).execute()
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE games SET last_checked_tweet_id = %s WHERE thread_id = %s
+        """, (tweet_id, thread_id))
+        conn.commit()
+        cur.close()
+        conn.close()
     except Exception as e:
         print(f"Error updating last_checked_tweet_id: {e}")
 
@@ -257,8 +319,12 @@ def delete_all_games():
     USE WITH CAUTION - for development/testing only.
     """
     try:
-        # Delete all rows by selecting all and deleting
-        supabase.table('games').delete().neq('id', 0).execute()
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM games")
+        conn.commit()
+        cur.close()
+        conn.close()
         print("All games deleted")
     except Exception as e:
         print(f"Error deleting games: {e}")
