@@ -253,10 +253,12 @@ def process_fire_tweet(tweet, game_data, author_username, opponent_username):
     # Get scoreboard stats
     hits, misses = count_hits_and_misses(updated_board)
 
-    # Generate the result image showing the updated board with ship count
+    # Generate the result image showing the updated board
+    # This is shown AFTER a shot - the author just fired, so show their result
     result_image = generate_board_image(
         updated_board,
-        f"@{author_username}",
+        f"@{author_username}",  # Who just fired
+        None,  # defender_name not needed for result display
         shooter_board_theme,
         ships_remaining
     )
@@ -326,10 +328,12 @@ def process_fire_tweet(tweet, game_data, author_username, opponent_username):
         # Get opponent's ship status
         opponent_ships = get_ships_remaining(opponent_board)
 
-        # Generate opponent's board image with ship count
+        # Generate board image for the NEXT player's turn
+        # opponent_username is who will fire NEXT, so they are the attacker
         opponent_image = generate_board_image(
             opponent_board,
-            f"@{opponent_username}",
+            f"@{opponent_username}",  # Who will fire next (attacker)
+            None,  # defender_name
             opponent_board_theme,
             opponent_ships
         )
@@ -845,20 +849,20 @@ def main_loop():
                     first_turn = game_data.get('turn', 'player1') if game_data else 'player1'
                     if first_turn == 'player1':
                         first_player_username = challenger_username
-                        # P1 fires first, so show P2's board (gray theme, gold accents)
-                        target_board_owner = opponent_username
-                        target_theme = '#4A4A4A'  # Gray theme for P2's board
+                        # P1 fires first at P2's board (gray theme)
+                        target_theme = '#4A4A4A'
                     else:
                         first_player_username = opponent_username
-                        # P2 fires first, so show P1's board (dark theme, blue accents)
-                        target_board_owner = challenger_username
-                        target_theme = '#1A1A1A'  # Dark theme for P1's board
+                        # P2 fires first at P1's board (dark theme)
+                        target_theme = '#1A1A1A'
 
                     # Generate the starting board image
+                    # Show who is firing (the first player)
                     blank_board = [[0 for _ in range(6)] for _ in range(6)]
                     image_filename = generate_board_image(
                         blank_board,
-                        f"@{target_board_owner}",  # Show whose board is being targeted
+                        f"@{first_player_username}",  # Who is firing first
+                        None,  # defender_name
                         target_theme
                     )
 

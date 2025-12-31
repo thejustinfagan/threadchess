@@ -10,18 +10,17 @@ import tempfile
 import os
 
 
-def generate_board_image(board, player_name, theme_color='#2C2C2C', ships_remaining=None):
+def generate_board_image(board, attacker_name, defender_name=None, theme_color='#2C2C2C', ships_remaining=None):
     """
     Generate a single-board game image for Twitter.
 
-    This is the main function used by main_polling.py.
-
     Args:
         board: 6x6 grid with cell values (0=water, 2-4=ships, 9=miss, 1/12-14=hit)
-        player_name: Display name (e.g., "@username") - this is the DEFENDER whose ships are shown
+        attacker_name: Display name of who is FIRING at this board (e.g., "@Chief_of_YOLO")
+        defender_name: Optional - whose ships are on this board (for display purposes)
         theme_color: Hex color for board theme
             - '#1A1A1A' (near-black) for Player 1's board
-            - '#3A3A3A' (slate gray) for Player 2's board
+            - '#4A4A4A' (slate gray) for Player 2's board
         ships_remaining: Optional dict with ship status {'total': int, 'big': bool, ...}
 
     Returns:
@@ -41,44 +40,40 @@ def generate_board_image(board, player_name, theme_color='#2C2C2C', ships_remain
         theme_rgb = (44, 44, 44)
 
     # Determine if this is Player 1 (dark/black) or Player 2 (gray) board
-    # Player 1 boards use darker colors, Player 2 uses lighter grays
-    is_dark_theme = sum(theme_rgb) < 150  # Dark if RGB sum is low
+    is_dark_theme = sum(theme_rgb) < 150
 
     if is_dark_theme:
-        # Player 1's board (BLACK theme) - opponent fires at this
-        BG_COLOR = (12, 12, 18)  # Very dark navy-black
-        WATER_COLOR1 = (20, 45, 90)  # Dark blue
-        WATER_COLOR2 = (30, 60, 110)  # Slightly lighter blue
-        GRID_LINE_COLOR = (50, 60, 80)
-        LABEL_COLOR = (200, 200, 220)  # Bright white-blue for visibility
+        # Player 1's board (BLACK theme)
+        BG_COLOR = (12, 12, 18)
+        WATER_COLOR1 = (20, 45, 90)
+        WATER_COLOR2 = (30, 60, 110)
+        GRID_LINE_COLOR = (60, 70, 90)
         ACCENT_COLOR = (70, 130, 200)  # Blue accent
     else:
-        # Player 2's board (GRAY theme) - opponent fires at this
-        BG_COLOR = (25, 28, 35)  # Dark gray with slight blue
-        WATER_COLOR1 = (45, 75, 120)  # Medium blue
-        WATER_COLOR2 = (55, 90, 140)  # Lighter blue
-        GRID_LINE_COLOR = (70, 80, 100)
-        LABEL_COLOR = (255, 220, 150)  # Warm gold/yellow for visibility
+        # Player 2's board (GRAY theme)
+        BG_COLOR = (25, 28, 35)
+        WATER_COLOR1 = (45, 75, 120)
+        WATER_COLOR2 = (55, 90, 140)
+        GRID_LINE_COLOR = (80, 90, 110)
         ACCENT_COLOR = (200, 160, 80)  # Gold accent
 
     # Common colors
     SHIP_COLOR1 = (80, 85, 95)
     SHIP_COLOR2 = (60, 65, 75)
-    MISS_COLOR = (50, 180, 80)  # Green splash
+    MISS_COLOR = (50, 180, 80)
     TEXT_COLOR = (255, 255, 255)
+    LABEL_COLOR = (255, 255, 255)  # Pure white for maximum visibility
 
     img = Image.new('RGB', (WIDTH, HEIGHT), BG_COLOR)
     draw = ImageDraw.Draw(img)
 
-    # Font setup - LARGER sizes for readability
+    # Font setup - MUCH LARGER for mobile readability
     try:
-        font_title = ImageFont.truetype("arial.ttf", 22)
-        font_large = ImageFont.truetype("arial.ttf", 18)
-        font_label = ImageFont.truetype("arial.ttf", 16)  # Bigger axis labels
+        font_title = ImageFont.truetype("arial.ttf", 20)
+        font_label = ImageFont.truetype("arial.ttf", 22)  # BIG axis labels
         font_small = ImageFont.truetype("arial.ttf", 12)
     except:
         font_title = ImageFont.load_default()
-        font_large = ImageFont.load_default()
         font_label = ImageFont.load_default()
         font_small = ImageFont.load_default()
 
@@ -101,36 +96,35 @@ def generate_board_image(board, player_name, theme_color='#2C2C2C', ships_remain
         draw.ellipse([x + size//4, y + size//4, x + 3*size//4, y + 3*size//4], fill=(255, 140, 0))
         draw.ellipse([x + size//3, y + size//3, x + 2*size//3, y + 2*size//3], fill=(255, 50, 30))
 
-    # Header with accent bar
-    y_pos = 15
-
     # Accent bar at top
-    draw.rectangle([0, 0, WIDTH, 5], fill=ACCENT_COLOR)
+    draw.rectangle([0, 0, WIDTH, 6], fill=ACCENT_COLOR)
 
-    # Player name (whose board this is)
-    draw.text((20, y_pos), player_name, font=font_title, fill=TEXT_COLOR)
+    # Header: "{attacker}, fire!"
+    y_pos = 15
+    header_text = f"{attacker_name}, fire!"
+    draw.text((20, y_pos), header_text, font=font_title, fill=TEXT_COLOR)
 
-    # Ship status if provided
+    # Ship status if provided (top right)
     if ships_remaining:
         status_text = f"Ships: {ships_remaining.get('total', '?')}/3"
-        draw.text((WIDTH - 110, y_pos + 4), status_text, font=font_large, fill=(180, 180, 200))
+        draw.text((WIDTH - 115, y_pos + 2), status_text, font=font_small, fill=(180, 180, 200))
 
-    y_pos += 45
+    y_pos += 35
 
-    # Board position - more padding for larger labels
-    board_x = (WIDTH - BOARD_WIDTH) // 2 + 10  # Shift right slightly for row labels
-    board_y = y_pos + 35
+    # Board position - leave room for big labels
+    board_x = 60  # Fixed left margin for row labels
+    board_y = y_pos + 40
 
-    # Column labels (1-6) - LARGER and BRIGHTER
+    # Column labels (1-6) - BIG WHITE NUMBERS
     for j in range(GRID_SIZE):
-        label_x = board_x + j * CELL_SIZE + (CELL_SIZE // 2) - 5
-        draw.text((label_x, board_y - 25), str(j + 1), font=font_label, fill=LABEL_COLOR)
+        label_x = board_x + j * CELL_SIZE + (CELL_SIZE // 2) - 6
+        draw.text((label_x, board_y - 30), str(j + 1), font=font_label, fill=LABEL_COLOR)
 
-    # Row labels (A-F) - LARGER and BRIGHTER
+    # Row labels (A-F) - BIG WHITE LETTERS
     for i in range(GRID_SIZE):
         label = chr(65 + i)
-        label_y = board_y + i * CELL_SIZE + (CELL_SIZE // 2) - 8
-        draw.text((board_x - 25, label_y), label, font=font_label, fill=LABEL_COLOR)
+        label_y = board_y + i * CELL_SIZE + (CELL_SIZE // 2) - 12
+        draw.text((board_x - 35, label_y), label, font=font_label, fill=LABEL_COLOR)
 
     # Draw grid cells
     for i in range(GRID_SIZE):
@@ -155,7 +149,7 @@ def generate_board_image(board, player_name, theme_color='#2C2C2C', ships_remain
             draw.rectangle([x, y, x + CELL_SIZE, y + CELL_SIZE], outline=GRID_LINE_COLOR, width=1)
 
     # Bottom accent bar
-    draw.rectangle([0, HEIGHT - 5, WIDTH, HEIGHT], fill=ACCENT_COLOR)
+    draw.rectangle([0, HEIGHT - 6, WIDTH, HEIGHT], fill=ACCENT_COLOR)
 
     # Watermark
     draw.text((WIDTH - 105, HEIGHT - 28), "@battle_dinghy", font=font_small, fill=(100, 110, 130))
