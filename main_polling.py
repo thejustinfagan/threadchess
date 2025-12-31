@@ -30,27 +30,55 @@ from db import (
 # Load environment variables
 load_dotenv()
 
-# Set up Tweepy Client (using same env vars as bot.py)
-client = tweepy.Client(
-    bearer_token=os.getenv("BEARER_TOKEN"),
-    consumer_key=os.getenv("X_API_KEY"),
-    consumer_secret=os.getenv("X_API_SECRET"),
-    access_token=os.getenv("X_ACCESS_TOKEN"),
-    access_token_secret=os.getenv("X_ACCESS_TOKEN_SECRET"),
-    wait_on_rate_limit=True
-)
-
 # Bot username
 BOT_USERNAME = "battle_dinghy"
 
-# Get bot's numeric user ID (needed to filter out bot's own tweets)
-try:
-    bot_user = client.get_user(username=BOT_USERNAME)
-    BOT_USER_ID = str(bot_user.data.id) if bot_user.data else None
-    print(f"Bot user ID: {BOT_USER_ID}")
-except Exception as e:
-    print(f"Warning: Could not get bot user ID: {e}")
-    BOT_USER_ID = None
+# Defer client initialization - will be created on first use
+client = None
+BOT_USER_ID = None
+
+def get_twitter_client():
+    """Get or create the Twitter get_twitter_client(). Deferred to allow env vars to load."""
+    global client, BOT_USER_ID
+
+    if client is not None:
+        return client
+
+    # Log which env vars are present (without revealing values)
+    env_vars = {
+        'BEARER_TOKEN': os.getenv("BEARER_TOKEN") is not None,
+        'X_API_KEY': os.getenv("X_API_KEY") is not None,
+        'X_API_SECRET': os.getenv("X_API_SECRET") is not None,
+        'X_ACCESS_TOKEN': os.getenv("X_ACCESS_TOKEN") is not None,
+        'X_ACCESS_TOKEN_SECRET': os.getenv("X_ACCESS_TOKEN_SECRET") is not None,
+    }
+    logger.info(f"Environment variables present: {env_vars}")
+
+    # Check for missing credentials
+    missing = [k for k, v in env_vars.items() if not v]
+    if missing:
+        logger.error(f"Missing Twitter credentials: {missing}")
+        raise ValueError(f"Missing Twitter credentials: {missing}")
+
+    client = tweepy.Client(
+        bearer_token=os.getenv("BEARER_TOKEN"),
+        consumer_key=os.getenv("X_API_KEY"),
+        consumer_secret=os.getenv("X_API_SECRET"),
+        access_token=os.getenv("X_ACCESS_TOKEN"),
+        access_token_secret=os.getenv("X_ACCESS_TOKEN_SECRET"),
+        wait_on_rate_limit=True
+    )
+
+    # Get bot's numeric user ID
+    try:
+        bot_user = client.get_user(username=BOT_USERNAME)
+        BOT_USER_ID = str(bot_user.data.id) if bot_user.data else None
+        logger.info(f"Bot user ID: {BOT_USER_ID}")
+    except Exception as e:
+        logger.warning(f"Could not get bot user ID: {e}")
+        BOT_USER_ID = None
+
+    return client
 
 
 def get_username_from_response(user_id, response):
@@ -144,7 +172,7 @@ def process_fire_tweet(tweet, game_data, author_username, opponent_username):
 
     if not coordinate:
         reply_text = "🎯 Please specify a coordinate! Example: 'fire A1' (A-F, 1-6)"
-        client.create_tweet(
+        get_twitter_client().create_tweet(
             text=reply_text,
             in_reply_to_tweet_id=tweet.id
         )
@@ -214,7 +242,7 @@ def process_fire_tweet(tweet, game_data, author_username, opponent_username):
     if not db_result:
         print(f"Database update failed - race condition detected or game no longer active")
         reply_text = "⚠️ Oops! Something went wrong. The game state changed. Please try again!"
-        client.create_tweet(
+        get_twitter_client().create_tweet(
             text=reply_text,
             in_reply_to_tweet_id=tweet.id
         )
@@ -270,7 +298,7 @@ def process_fire_tweet(tweet, game_data, author_username, opponent_username):
     media = api.media_upload(result_image)
 
     # Post the result tweet - reply to the THREAD not the fire command
-    result_tweet = client.create_tweet(
+    result_tweet = get_twitter_client().create_tweet(
         text=result_tweet_text,
         in_reply_to_tweet_id=thread_id,
         media_ids=[media.media_id]
@@ -314,7 +342,7 @@ def process_fire_tweet(tweet, game_data, author_username, opponent_username):
 
         # Post the prompt tweet for the opponent - reply to THREAD not previous tweet
         prompt_text = f"{prompt_post_number}/ Your turn, @{opponent_username}! Fire away! 🎯"
-        prompt_tweet = client.create_tweet(
+        prompt_tweet = get_twitter_client().create_tweet(
             text=prompt_text,
             in_reply_to_tweet_id=thread_id,
             media_ids=[media_opponent.media_id]
@@ -355,7 +383,7 @@ def handle_fire_command(last_fire_tweet_id=None):
         search_params['since_id'] = last_fire_tweet_id
 
     try:
-        response = client.search_recent_tweets(**search_params)
+        response = get_twitter_client().search_recent_tweets(**search_params)
 
         if response.data:
             print(f"Found {len(response.data)} @mention fire command(s)")
@@ -383,7 +411,7 @@ def handle_fire_command(last_fire_tweet_id=None):
                     print(f"No game found for tweet_id={tweet_id}, conversation_id={conversation_id}")
                     reply_text = "❌ No active game found. Make sure you're replying in the game thread!"
                     try:
-                        client.create_tweet(
+                        get_twitter_client().create_tweet(
                             text=reply_text,
                             in_reply_to_tweet_id=tweet.id
                         )
@@ -407,7 +435,7 @@ def handle_fire_command(last_fire_tweet_id=None):
                 if author_id != current_turn_player_id:
                     whose_turn = game_data['player1_id'] if game_data['turn'] == 'player1' else game_data['player2_id']
                     reply_text = f"⏳ Hold up! It's @{whose_turn}'s turn. You'll go next!"
-                    client.create_tweet(
+                    get_twitter_client().create_tweet(
                         text=reply_text,
                         in_reply_to_tweet_id=tweet.id
                     )
@@ -476,7 +504,7 @@ def monitor_active_games():
             if last_checked:
                 search_params['since_id'] = last_checked
 
-            response = client.search_recent_tweets(**search_params)
+            response = get_twitter_client().search_recent_tweets(**search_params)
 
             if not response.data:
                 print(f"  No new tweets in thread {thread_id}")
@@ -527,7 +555,7 @@ def monitor_active_games():
                     whose_turn = game_data['player1_id'] if game_data['turn'] == 'player1' else game_data['player2_id']
                     reply_text = f"⏳ Hold up! It's @{whose_turn}'s turn. You'll go next!"
                     try:
-                        client.create_tweet(
+                        get_twitter_client().create_tweet(
                             text=reply_text,
                             in_reply_to_tweet_id=tweet.id
                         )
@@ -593,7 +621,7 @@ def main_loop():
             if last_challenge_tweet_id:
                 search_params['since_id'] = last_challenge_tweet_id
 
-            response = client.search_recent_tweets(**search_params)
+            response = get_twitter_client().search_recent_tweets(**search_params)
             
             # Debug: Show what Twitter returned
             if response.data:
@@ -697,7 +725,7 @@ def main_loop():
                         print(f"No opponent mentioned in tweet {tweet.id} - skipping")
                         # Reply to let user know they need to mention an opponent
                         try:
-                            client.create_tweet(
+                            get_twitter_client().create_tweet(
                                 text=f"⚠️ Please mention an opponent! Example: '@{BOT_USERNAME} play @opponent'",
                                 in_reply_to_tweet_id=tweet.id
                             )
@@ -711,12 +739,12 @@ def main_loop():
                     # OPPONENT VALIDATION FIX: Verify opponent exists before creating game
                     # This prevents broken games with invalid opponent IDs
                     try:
-                        opponent_user_response = client.get_user(username=opponent_username)
+                        opponent_user_response = get_twitter_client().get_user(username=opponent_username)
                         if not opponent_user_response.data:
                             print(f"Opponent @{opponent_username} not found")
                             # Reply with error - DON'T create game
                             try:
-                                client.create_tweet(
+                                get_twitter_client().create_tweet(
                                     text=f"❌ User @{opponent_username} not found! Please mention a valid Twitter user.",
                                     in_reply_to_tweet_id=tweet.id
                                 )
@@ -729,7 +757,7 @@ def main_loop():
                         print(f"Error looking up opponent @{opponent_username}: {e}")
                         # Reply with error - DON'T create game
                         try:
-                            client.create_tweet(
+                            get_twitter_client().create_tweet(
                                 text=f"❌ Couldn't find user @{opponent_username}. Please check the username and try again!",
                                 in_reply_to_tweet_id=tweet.id
                             )
@@ -741,7 +769,7 @@ def main_loop():
                     if opponent_id == challenger_id:
                         print(f"User {challenger_id} tried to challenge themselves")
                         try:
-                            client.create_tweet(
+                            get_twitter_client().create_tweet(
                                 text="❌ You can't challenge yourself! Pick a friend to play against.",
                                 in_reply_to_tweet_id=tweet.id
                             )
@@ -753,7 +781,7 @@ def main_loop():
                     if BOT_USER_ID and opponent_id == BOT_USER_ID:
                         print(f"User {challenger_id} tried to challenge the bot")
                         try:
-                            client.create_tweet(
+                            get_twitter_client().create_tweet(
                                 text="❌ You can't challenge me! I'm the referee, not a player! 🤖",
                                 in_reply_to_tweet_id=tweet.id
                             )
@@ -796,7 +824,7 @@ def main_loop():
                             )
                         
                         try:
-                            client.create_tweet(
+                            get_twitter_client().create_tweet(
                                 text=reply_text,
                                 in_reply_to_tweet_id=tweet.id
                             )
@@ -850,7 +878,7 @@ def main_loop():
                     api = tweepy.API(auth)
                     media = api.media_upload(image_filename)
 
-                    reply = client.create_tweet(
+                    reply = get_twitter_client().create_tweet(
                         text=reply_text,
                         in_reply_to_tweet_id=tweet.id,
                         media_ids=[media.media_id]
