@@ -19,7 +19,7 @@ def get_connection():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
 def init_db():
-    """Create the games table if it doesn't exist."""
+    """Create the games and processed_tweets tables if they don't exist."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
@@ -36,6 +36,13 @@ def init_db():
             bot_post_count INTEGER DEFAULT 0,
             last_checked_tweet_id TEXT,
             created_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    # Table to track processed tweets (survives restarts)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS processed_tweets (
+            tweet_id TEXT PRIMARY KEY,
+            processed_at TIMESTAMP DEFAULT NOW()
         )
     """)
     conn.commit()
@@ -142,54 +149,6 @@ def get_game_by_thread_id(thread_id):
     cur.close()
     conn.close()
     return dict(result) if result else None
-
-
-def get_game_robust(tweet_id, conversation_id, author_id):
-    """
-    Robust game lookup with multiple fallback strategies.
-
-    Tries to find a game by:
-    1. Direct thread_id match with tweet_id
-    2. Direct thread_id match with conversation_id
-    3. Finding active game where author is a player
-
-    Args:
-        tweet_id: The tweet ID
-        conversation_id: The conversation/thread ID
-        author_id: The author's user ID
-
-    Returns:
-        dict: The game state, or None if not found
-    """
-    # Strategy 1: Try tweet_id as thread_id
-    game = get_game_by_thread_id(tweet_id)
-    if game and game.get('game_state') == 'active':
-        return game
-
-    # Strategy 2: Try conversation_id as thread_id
-    if conversation_id:
-        game = get_game_by_thread_id(conversation_id)
-        if game and game.get('game_state') == 'active':
-            return game
-
-    # Strategy 3: Find active game where author is a player
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT * FROM games
-            WHERE game_state = 'active' AND (player1_id = %s OR player2_id = %s)
-            ORDER BY created_at DESC LIMIT 1
-        """, (author_id, author_id))
-        result = cur.fetchone()
-        cur.close()
-        conn.close()
-        if result:
-            return dict(result)
-    except Exception as e:
-        print(f"Error in robust game lookup: {e}")
-
-    return None
 
 
 def update_game_after_shot(thread_id, board_field, updated_board, new_turn_or_state, expected_turn=None):
@@ -328,3 +287,97 @@ def delete_all_games():
         print("All games deleted")
     except Exception as e:
         print(f"Error deleting games: {e}")
+
+
+def is_tweet_processed(tweet_id):
+    """
+    Check if a tweet has already been processed.
+
+    Args:
+        tweet_id: The tweet ID to check
+
+    Returns:
+        bool: True if already processed, False otherwise
+    """
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM processed_tweets WHERE tweet_id = %s", (str(tweet_id),))
+        result = cur.fetchone()
+        cur.close()
+        conn.close()
+        return result is not None
+    except Exception as e:
+        print(f"Error checking processed tweet: {e}")
+        return False
+
+
+def mark_tweet_processed(tweet_id):
+    """
+    Mark a tweet as processed in the database.
+
+    Args:
+        tweet_id: The tweet ID to mark as processed
+    """
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO processed_tweets (tweet_id) VALUES (%s)
+            ON CONFLICT (tweet_id) DO NOTHING
+        """, (str(tweet_id),))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Error marking tweet as processed: {e}")
+
+
+def cleanup_old_processed_tweets(hours=24):
+    """
+    Remove processed tweet records older than specified hours.
+    Called periodically to prevent table growth.
+
+    Args:
+        hours: Number of hours after which to delete records (default 24)
+    """
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            DELETE FROM processed_tweets
+            WHERE processed_at < NOW() - INTERVAL '%s hours'
+        """, (hours,))
+        deleted = cur.rowcount
+        conn.commit()
+        cur.close()
+        conn.close()
+        if deleted > 0:
+            print(f"Cleaned up {deleted} old processed tweet records")
+    except Exception as e:
+        print(f"Error cleaning up processed tweets: {e}")
+
+
+def cancel_all_active_games():
+    """
+    Cancel all active games by setting their state to 'cancelled'.
+    Returns the number of games cancelled.
+    """
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE games SET game_state = 'cancelled'
+            WHERE game_state = 'active'
+            RETURNING thread_id
+        """)
+        cancelled = cur.fetchall()
+        conn.commit()
+        cur.close()
+        conn.close()
+        count = len(cancelled) if cancelled else 0
+        print(f"Cancelled {count} active game(s)")
+        return count
+    except Exception as e:
+        print(f"Error cancelling games: {e}")
+        return 0

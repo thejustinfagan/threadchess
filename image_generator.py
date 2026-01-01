@@ -10,13 +10,14 @@ import tempfile
 import os
 
 
-def generate_board_image(board, defender_name, theme_color='#2C2C2C', ships_status=None):
+def generate_board_image(board, attacker_name, defender_name, theme_color='#2C2C2C', ships_status=None):
     """
     Generate a single-board game image for Twitter.
 
     Args:
         board: 6x6 grid with cell values (0=water, 2-4=ships, 9=miss, 1/12-14=hit)
-        defender_name: Display name of whose FLEET this is (e.g., "@thejustinfagan")
+        attacker_name: Display name of who is SHOOTING (e.g., "@thejustinfagan")
+        defender_name: Display name of whose FLEET this is (e.g., "@Chief_of_YOLO")
         theme_color: Hex color for board theme
             - '#1A1A1A' (near-black) for Player 1's board
             - '#4A4A4A' (slate gray) for Player 2's board
@@ -28,9 +29,9 @@ def generate_board_image(board, defender_name, theme_color='#2C2C2C', ships_stat
     """
     # Constants
     WIDTH = 400
-    HEIGHT = 520
-    CELL_SIZE = 50
-    GRID_SIZE = 6
+    HEIGHT = 480
+    CELL_SIZE = 55
+    GRID_SIZE = 5
     BOARD_WIDTH = CELL_SIZE * GRID_SIZE
 
     # Parse theme color to determine board style
@@ -132,9 +133,9 @@ def generate_board_image(board, defender_name, theme_color='#2C2C2C', ships_stat
     # Accent bar at top
     draw.rectangle([0, 0, WIDTH, 5], fill=ACCENT_COLOR)
 
-    # Header: "{defender}'s Fleet"
+    # Header: "{attacker}'s shots at {defender}'s Fleet"
     y_pos = 12
-    header_text = f"{defender_name}'s Fleet"
+    header_text = f"{attacker_name}'s shots at {defender_name}'s Fleet"
     draw.text((15, y_pos), header_text, font=font_title, fill=TEXT_COLOR)
 
     y_pos += 28
@@ -145,22 +146,22 @@ def generate_board_image(board, defender_name, theme_color='#2C2C2C', ships_stat
         ship_y = y_pos
         x_pos = 15
 
-        # Big Dinghy (3 segments)
-        draw.text((x_pos, ship_y), "Big:", font=font_ship, fill=(150, 150, 170))
-        big_info = ships_status.get('big', {'hits': 0, 'sunk': False})
-        draw_ship_indicator(x_pos + 30, ship_y, 3, big_info.get('hits', 0), big_info.get('sunk', False))
+        # Giant Dinghy (3 segments)
+        draw.text((x_pos, ship_y), "Giant:", font=font_ship, fill=(150, 150, 170))
+        giant_info = ships_status.get('giant', {'hits': 0, 'sunk': False})
+        draw_ship_indicator(x_pos + 40, ship_y, 3, giant_info.get('hits', 0), giant_info.get('sunk', False))
 
-        # Dinghy (2 segments)
+        # Average Dinghy (2 segments)
         x_pos = 145
-        draw.text((x_pos, ship_y), "Med:", font=font_ship, fill=(150, 150, 170))
-        med_info = ships_status.get('medium', {'hits': 0, 'sunk': False})
-        draw_ship_indicator(x_pos + 32, ship_y, 2, med_info.get('hits', 0), med_info.get('sunk', False))
+        draw.text((x_pos, ship_y), "Avg:", font=font_ship, fill=(150, 150, 170))
+        avg_info = ships_status.get('average', {'hits': 0, 'sunk': False})
+        draw_ship_indicator(x_pos + 28, ship_y, 2, avg_info.get('hits', 0), avg_info.get('sunk', False))
 
-        # Small Dinghy (1 segment)
-        x_pos = 255
-        draw.text((x_pos, ship_y), "Sm:", font=font_ship, fill=(150, 150, 170))
-        small_info = ships_status.get('small', {'hits': 0, 'sunk': False})
-        draw_ship_indicator(x_pos + 25, ship_y, 1, small_info.get('hits', 0), small_info.get('sunk', False))
+        # Tiny Dinghy (1 segment)
+        x_pos = 250
+        draw.text((x_pos, ship_y), "Tiny:", font=font_ship, fill=(150, 150, 170))
+        tiny_info = ships_status.get('tiny', {'hits': 0, 'sunk': False})
+        draw_ship_indicator(x_pos + 32, ship_y, 1, tiny_info.get('hits', 0), tiny_info.get('sunk', False))
 
         y_pos += 25
 
@@ -186,18 +187,20 @@ def generate_board_image(board, defender_name, theme_color='#2C2C2C', ships_stat
             y = board_y + i * CELL_SIZE
             cell = board[i][j]
 
-            # Cell values: 0=water, 2-4=ships, 9=miss, 1=hit, 12-14=hit ships
-            if cell == 0:
+            # Cell values: 0=water, 1-3=unhit ships (hidden), 9=miss, 11-13=hit ships
+            # IMPORTANT: Unhit ships (1-3) must appear as water to hide their positions!
+            if cell == 0 or cell in [1, 2, 3]:
+                # Water OR unhit ships - both show as water (ships are hidden)
                 draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, WATER_COLOR1, WATER_COLOR2)
             elif cell == 9:
+                # Miss - water with green circle
                 draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, WATER_COLOR1, WATER_COLOR2)
-                draw.ellipse([x + 12, y + 12, x + CELL_SIZE - 12, y + CELL_SIZE - 12],
+                draw.ellipse([x + 14, y + 14, x + CELL_SIZE - 14, y + CELL_SIZE - 14],
                            fill=MISS_COLOR, outline=(30, 140, 60), width=2)
-            elif cell == 1 or cell >= 12:
+            elif cell >= 11:
+                # Hit - gray ship background with explosion
                 draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, (70, 75, 85), (50, 55, 65))
                 draw_explosion(x + 5, y + 5, CELL_SIZE - 10)
-            elif cell in [2, 3, 4]:
-                draw_gradient_square(x + 2, y + 2, CELL_SIZE - 4, (70, 75, 85), (50, 55, 65))
 
             draw.rectangle([x, y, x + CELL_SIZE, y + CELL_SIZE], outline=GRID_LINE_COLOR, width=1)
 

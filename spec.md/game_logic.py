@@ -1,28 +1,33 @@
 import random
 
+# Grid size constant
+GRID_SIZE = 5
+
+# Fleet configuration: ship_name -> size
+# Ship IDs are based on size: Giant=3, Average=2, Tiny=1
 FLEET_CONFIG = {
-    'Big Dinghy': 4,
-    'Dinghy': 3,
-    'Small Dinghy': 2
+    'Giant Dinghy': 3,
+    'Average Dinghy': 2,
+    'Tiny Dinghy': 1
 }
 
 
 def create_new_board():
     """
-    Creates a 6x6 game board and randomly places all ships from FLEET_CONFIG.
+    Creates a 5x5 game board and randomly places all ships from FLEET_CONFIG.
 
     Returns:
-        list: A 6x6 grid (list of lists) with ships placed on it.
+        list: A 5x5 grid (list of lists) with ships placed on it.
               0 represents water, other numbers represent different ships.
     """
-    # Create empty 6x6 grid filled with 0s (water)
-    board = [[0 for _ in range(6)] for _ in range(6)]
+    # Create empty 5x5 grid filled with 0s (water)
+    board = [[0 for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
 
-    # Assign ship IDs based on their size
+    # Assign ship IDs based on their size (ID = size for simplicity)
     ship_ids = {
-        'Big Dinghy': 4,
-        'Dinghy': 3,
-        'Small Dinghy': 2
+        'Giant Dinghy': 3,
+        'Average Dinghy': 2,
+        'Tiny Dinghy': 1
     }
 
     # Try to place each ship
@@ -35,13 +40,13 @@ def create_new_board():
         while not placed and attempts < max_attempts:
             attempts += 1
 
-            # Random orientation: 0 = horizontal, 1 = vertical
+            # Random orientation: horizontal or vertical
             orientation = random.choice(['horizontal', 'vertical'])
 
             if orientation == 'horizontal':
                 # Random starting position for horizontal ship
-                row = random.randint(0, 5)
-                col = random.randint(0, 6 - ship_size)
+                row = random.randint(0, GRID_SIZE - 1)
+                col = random.randint(0, GRID_SIZE - ship_size)
 
                 # Check if placement is valid (no overlaps)
                 valid = True
@@ -58,8 +63,8 @@ def create_new_board():
 
             else:  # vertical
                 # Random starting position for vertical ship
-                row = random.randint(0, 6 - ship_size)
-                col = random.randint(0, 5)
+                row = random.randint(0, GRID_SIZE - ship_size)
+                col = random.randint(0, GRID_SIZE - 1)
 
                 # Check if placement is valid (no overlaps)
                 valid = True
@@ -87,17 +92,18 @@ def process_shot(coordinate, secret_board, hits_board):
 
     Args:
         coordinate: String coordinate like "A1", "C3", etc.
-        secret_board: The opponent's secret ship board (6x6 grid)
-        hits_board: The current player's hits tracking board (6x6 grid)
+        secret_board: The opponent's secret ship board (5x5 grid)
+        hits_board: The current player's hits tracking board (5x5 grid)
 
     Returns:
-        tuple: (result_message, updated_hits_board)
-               result_message is a string like "Miss! ⭕️" or "Hit! 💥"
+        tuple: (result_message, updated_hits_board, ship_name_if_hit)
+               result_message is a string like "MISS" or "HIT" or "SUNK"
                updated_hits_board is the modified hits board
+               ship_name_if_hit is the ship name if hit, None otherwise
     """
     # Input validation and sanitization
     if not isinstance(coordinate, str):
-        return ("🎯 Invalid coordinate format! Use A1-F6.", hits_board)
+        return ("INVALID", hits_board, None)
 
     # Sanitize input - remove potentially dangerous characters
     coordinate = ''.join(c for c in coordinate if c.isalnum() or c.isspace())
@@ -105,58 +111,58 @@ def process_shot(coordinate, secret_board, hits_board):
 
     # Length check to prevent buffer overflow attempts
     if len(coordinate) > 10:
-        return ("🎯 Coordinate too long! Use format A1-F6.", hits_board)
+        return ("INVALID", hits_board, None)
 
     if len(coordinate) < 2:
-        return ("🎯 Oops! Need a coordinate like A1-F6. Try again!", hits_board)
+        return ("INVALID", hits_board, None)
 
     # Parse the coordinate (e.g., "A1" -> row=0, col=0)
     row_letter = coordinate[0]
     try:
         col_number = int(coordinate[1:])
     except ValueError:
-        return ("🎯 Invalid format! Use A1-F6 (letter + number). Try again!", hits_board)
+        return ("INVALID", hits_board, None)
 
-    # Validate row (A-F) and column (1-6)
-    if row_letter < 'A' or row_letter > 'F':
-        return ("🎯 Row must be A-F! Try a coordinate like A1 or D4.", hits_board)
-    if col_number < 1 or col_number > 6:
-        return ("🎯 Column must be 1-6! Try a coordinate like A1 or D4.", hits_board)
+    # Validate row (A-E) and column (1-5)
+    if row_letter < 'A' or row_letter > 'E':
+        return ("INVALID", hits_board, None)
+    if col_number < 1 or col_number > 5:
+        return ("INVALID", hits_board, None)
 
     # Convert to 0-indexed grid coordinates
     row = ord(row_letter) - ord('A')
     col = col_number - 1
 
     # Check if this coordinate was already fired upon
-    # Values: 0=water, 2-4=ships, 9=miss, 12-14=hit ships
+    # Values: 0=water, 1-3=ships, 9=miss, 11-13=hit ships
     cell_value = hits_board[row][col]
-    if cell_value == 9 or cell_value >= 12:  # Miss or hit
-        return (f"🔄 Already fired at {coordinate.upper()}! Pick a new spot.", hits_board)
+    if cell_value == 9 or cell_value >= 11:  # Miss or hit
+        return ("ALREADY_FIRED", hits_board, None)
 
-    # Check what's at this coordinate (could be water=0, or ship=2/3/4)
+    # Check what's at this coordinate (could be water=0, or ship=1/2/3)
     if cell_value == 0:
         # Water - it's a miss
         hits_board[row][col] = 9  # Mark as miss
-        return ("Miss! ⭕️", hits_board)
+        return ("MISS", hits_board, None)
     else:
-        # Hit a ship (cell_value is 2, 3, or 4)
+        # Hit a ship (cell_value is 1, 2, or 3)
         ship_id = cell_value
         # Mark as hit by adding 10 to preserve ship identity
-        # 2 becomes 12, 3 becomes 13, 4 becomes 14
+        # 1 becomes 11, 2 becomes 12, 3 becomes 13
         hits_board[row][col] = 10 + ship_id  # Mark as HIT ship (preserves which ship)
 
         # Determine which ship was hit
         ship_name = None
-        for name, sid in [('Big Dinghy', 4), ('Dinghy', 3), ('Small Dinghy', 2)]:
+        for name, sid in [('Giant Dinghy', 3), ('Average Dinghy', 2), ('Tiny Dinghy', 1)]:
             if sid == ship_id:
                 ship_name = name
                 break
 
         # Check if the ship is sunk by counting all positions of this ship
         ship_positions = []
-        for r in range(6):
-            for c in range(6):
-                # Find ship by checking both unhit (2-4) and hit (12-14) positions
+        for r in range(GRID_SIZE):
+            for c in range(GRID_SIZE):
+                # Find ship by checking both unhit (1-3) and hit (11-13) positions
                 board_val = hits_board[r][c]
                 if board_val == ship_id or board_val == (10 + ship_id):
                     ship_positions.append((r, c))
@@ -170,10 +176,10 @@ def process_shot(coordinate, secret_board, hits_board):
 
         if all_hit:
             # Ship is sunk
-            return (f"Hit! You sunk their {ship_name}! 💥🚢", hits_board)
+            return ("SUNK", hits_board, ship_name)
         else:
             # Ship hit but not sunk
-            return (f"Hit {ship_name}! 💥", hits_board)
+            return ("HIT", hits_board, ship_name)
 
 
 def copy_board(board):
@@ -181,10 +187,10 @@ def copy_board(board):
     Create a deep copy of a board.
 
     Args:
-        board: 6x6 grid to copy
+        board: 5x5 grid to copy
 
     Returns:
-        list: A new 6x6 grid with the same values
+        list: A new 5x5 grid with the same values
     """
     return [row[:] for row in board]
 
@@ -193,27 +199,27 @@ def get_ships_remaining(board):
     """
     Count how many ships are still afloat (not fully sunk) on a board.
 
-    Board values: 0=water, 2-4=unhit ships, 9=miss, 12-14=hit ships
+    Board values: 0=water, 1-3=unhit ships, 9=miss, 11-13=hit ships
 
     Args:
-        board: 6x6 grid with ship positions and hit/miss markers
+        board: 5x5 grid with ship positions and hit/miss markers
 
     Returns:
-        dict: {'Big Dinghy': bool, 'Dinghy': bool, 'Small Dinghy': bool, 'total': int}
+        dict: {'Giant Dinghy': bool, 'Average Dinghy': bool, 'Tiny Dinghy': bool, 'total': int}
               True means ship is still afloat, False means sunk
     """
     ships_status = {
-        'Big Dinghy': False,
-        'Dinghy': False,
-        'Small Dinghy': False
+        'Giant Dinghy': False,
+        'Average Dinghy': False,
+        'Tiny Dinghy': False
     }
 
     # Check each ship type
-    for ship_name, ship_id in [('Big Dinghy', 4), ('Dinghy', 3), ('Small Dinghy', 2)]:
+    for ship_name, ship_id in [('Giant Dinghy', 3), ('Average Dinghy', 2), ('Tiny Dinghy', 1)]:
         # Find all positions of this ship (both unhit and hit)
         ship_positions = []
-        for r in range(6):
-            for c in range(6):
+        for r in range(GRID_SIZE):
+            for c in range(GRID_SIZE):
                 cell_val = board[r][c]
                 # Ship exists if cell is ship_id (unhit) or 10+ship_id (hit)
                 if cell_val == ship_id or cell_val == (10 + ship_id):
@@ -225,7 +231,7 @@ def get_ships_remaining(board):
             afloat = any(board[r][c] == ship_id for r, c in ship_positions)
             ships_status[ship_name] = afloat
 
-    ships_status['total'] = sum(1 for status in [ships_status['Big Dinghy'], ships_status['Dinghy'], ships_status['Small Dinghy']] if status)
+    ships_status['total'] = sum(1 for status in [ships_status['Giant Dinghy'], ships_status['Average Dinghy'], ships_status['Tiny Dinghy']] if status)
     return ships_status
 
 
@@ -233,24 +239,24 @@ def get_detailed_ship_status(board):
     """
     Get detailed hit/sunk status for each ship type on a board.
 
-    Board values: 0=water, 2=Small Dinghy, 3=Dinghy, 4=Big Dinghy, 9=miss
-                  12=hit Small, 13=hit Dinghy, 14=hit Big
+    Board values: 0=water, 1=Tiny Dinghy, 2=Average Dinghy, 3=Giant Dinghy, 9=miss
+                  11=hit Tiny, 12=hit Average, 13=hit Giant
 
     Args:
-        board: 6x6 grid with ship positions and hit/miss markers
+        board: 5x5 grid with ship positions and hit/miss markers
 
     Returns:
         dict: {
-            'big': {'hits': 0-3, 'sunk': bool, 'size': 3},
-            'medium': {'hits': 0-2, 'sunk': bool, 'size': 2},
-            'small': {'hits': 0-1, 'sunk': bool, 'size': 1}
+            'giant': {'hits': 0-3, 'sunk': bool, 'size': 3},
+            'average': {'hits': 0-2, 'sunk': bool, 'size': 2},
+            'tiny': {'hits': 0-1, 'sunk': bool, 'size': 1}
         }
     """
     # Ship definitions: (display_key, ship_id, size)
     ships = [
-        ('big', 4, 3),     # Big Dinghy: id=4, size=3
-        ('medium', 3, 2),  # Dinghy: id=3, size=2
-        ('small', 2, 1),   # Small Dinghy: id=2, size=1
+        ('giant', 3, 3),    # Giant Dinghy: id=3, size=3
+        ('average', 2, 2),  # Average Dinghy: id=2, size=2
+        ('tiny', 1, 1),     # Tiny Dinghy: id=1, size=1
     ]
 
     result = {}
@@ -282,10 +288,10 @@ def count_hits_and_misses(board):
     """
     Count the number of hits and misses on a board.
 
-    Board values: 0=water, 2-4=unhit ships, 9=miss, 12-14=hit ships
+    Board values: 0=water, 1-3=unhit ships, 9=miss, 11-13=hit ships
 
     Args:
-        board: 6x6 grid with hit/miss markers
+        board: 5x5 grid with hit/miss markers
 
     Returns:
         tuple: (hits_count, misses_count)
@@ -295,7 +301,7 @@ def count_hits_and_misses(board):
 
     for row in board:
         for cell in row:
-            if cell >= 12:  # Hit ships (12, 13, 14)
+            if cell >= 11:  # Hit ships (11, 12, 13)
                 hits += 1
             elif cell == 9:  # Miss
                 misses += 1

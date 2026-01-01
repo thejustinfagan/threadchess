@@ -140,10 +140,48 @@ This guide covers deploying the Battle Dinghy Twitter bot to cloud hosting platf
 - Check Twitter API credentials
 - Verify Supabase connection
 
+### Supabase Connection Issues
+
+#### Error: "getaddrinfo failed" or "Could not connect to database"
+This means Railway cannot reach your Supabase instance. Fix by:
+
+1. **Verify Environment Variables in Railway:**
+   - Go to Railway dashboard → Your Project → Variables tab
+   - Ensure `SUPABASE_URL` is set (should start with `https://`)
+   - Ensure `SUPABASE_KEY` is set (use the anon/public key, NOT service_role key)
+   - Variable names must be EXACTLY `SUPABASE_URL` and `SUPABASE_KEY` (case-sensitive)
+
+2. **Check Supabase URL Format:**
+   - Should be: `https://[project-ref].supabase.co`
+   - Get it from: Supabase Dashboard → Project Settings → API → Project URL
+
+3. **Check Supabase Key:**
+   - Use the "anon" or "public" key (NOT service_role key)
+   - Get it from: Supabase Dashboard → Project Settings → API → Project API keys → anon public
+
+4. **Verify Supabase Project Status:**
+   - Make sure your Supabase project is not paused
+   - Check Supabase dashboard for any project issues
+
+5. **Redeploy After Setting Variables:**
+   - After adding/changing environment variables, Railway will auto-redeploy
+   - Check logs to verify connection is successful
+
+#### Error: "401 Unauthorized" or "Could not authenticate"
+- Verify `SUPABASE_KEY` is the correct anon/public key
+- Make sure you're using the anon key, not the service_role key
+- Check that the key hasn't been rotated in Supabase
+
+#### Error: "Missing Supabase credentials"
+- Both `SUPABASE_URL` and `SUPABASE_KEY` must be set in Railway
+- Variable names are case-sensitive
+- Redeploy after adding variables
+
 ### Worker keeps restarting
 - Check logs for crash errors
 - Verify all dependencies are in `requirements.txt`
 - Check Python version compatibility
+- Check for Supabase connection errors (see above)
 
 ### Rate limiting issues
 - Bot polls every 60 seconds (should be fine)
