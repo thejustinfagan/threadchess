@@ -82,8 +82,8 @@ def create_game(player1_id, player2_id, player1_board, player2_board, thread_id)
     Args:
         player1_id: ID of player 1
         player2_id: ID of player 2
-        player1_board: Player 1's secret ship board (6x6 grid)
-        player2_board: Player 2's secret ship board (6x6 grid)
+        player1_board: Player 1's secret ship board (5x5 grid)
+        player2_board: Player 2's secret ship board (5x5 grid)
         thread_id: Twitter thread/conversation ID for the game
 
     Returns:
@@ -95,6 +95,16 @@ def create_game(player1_id, player2_id, player1_board, player2_board, thread_id)
     conn = get_connection()
     cur = conn.cursor()
     try:
+        # First, check if there's an existing non-active game with this thread_id
+        # If so, delete it to allow creating a fresh game
+        cur.execute("""
+            DELETE FROM games
+            WHERE thread_id = %s AND game_state != 'active'
+        """, (thread_id,))
+        deleted = cur.rowcount
+        if deleted > 0:
+            print(f"Deleted {deleted} old non-active game(s) for thread {thread_id}")
+
         cur.execute("""
             INSERT INTO games (game_number, player1_id, player2_id, player1_board, player2_board, turn, game_state, thread_id, bot_post_count)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
