@@ -868,13 +868,19 @@ def main_loop():
 
                     # Generate the starting board image
                     # Show the DEFENDER's fleet (whose ships are being targeted)
-                    blank_board = [[0 for _ in range(6)] for _ in range(6)]
+                    blank_board = [[0 for _ in range(5)] for _ in range(5)]  # 5x5 grid
+                    # Initial ship status - all ships at full health (no hits, not sunk)
+                    initial_ship_status = {
+                        'giant': {'hits': 0, 'sunk': False, 'size': 3},
+                        'average': {'hits': 0, 'sunk': False, 'size': 2},
+                        'tiny': {'hits': 0, 'sunk': False, 'size': 1}
+                    }
                     image_filename = generate_board_image(
                         blank_board,
                         f"@{first_player_username}",  # Who will be shooting (attacker)
                         f"@{defender_username}",      # Whose fleet this is (defender)
-                        target_theme
-                        # No ship_status for blank starting board
+                        target_theme,
+                        initial_ship_status  # Show ship tracker on starting board
                     )
 
                     # Log game creation with first player info
