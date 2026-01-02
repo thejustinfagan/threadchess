@@ -521,7 +521,7 @@ def monitor_active_games():
 
                 # Check for scuttle command during active game
                 tweet_text_lower = tweet.text.lower()
-                scuttle_phrases = ['abandon ship', 'scuttle the fleet', 'man overboard']
+                scuttle_phrases = ['abandon dinghy', 'scuttle the fleet', 'man overboard']
                 is_scuttle_command = any(phrase in tweet_text_lower for phrase in scuttle_phrases)
 
                 if is_scuttle_command:
@@ -538,7 +538,7 @@ def monitor_active_games():
                     # Send a fun themed response
                     if was_cancelled:
                         scuttle_response = (
-                            f"🚢💨 ABANDON SHIP! 💨🚢\n\n"
+                            f"🛶💨 ABANDON DINGHY! 💨🛶\n\n"
                             f"@{scuttler_username} has scuttled this battle!\n"
                             f"The dinghy sinks beneath the waves... 🌊\n\n"
                             f"Start a new battle anytime! ⚔️"
@@ -710,7 +710,7 @@ def main_loop():
                     # =================================================================
                     # SCUTTLE THE FLEET - Cancel the game in this specific thread
                     # =================================================================
-                    scuttle_phrases = ['abandon ship', 'scuttle the fleet', 'man overboard']
+                    scuttle_phrases = ['abandon dinghy', 'scuttle the fleet', 'man overboard']
                     is_scuttle_command = any(phrase in text_without_bot for phrase in scuttle_phrases)
 
                     if is_scuttle_command:
@@ -724,7 +724,7 @@ def main_loop():
                         # Send a fun themed response
                         if was_cancelled:
                             scuttle_response = (
-                                f"🚢💨 ABANDON SHIP! 💨🚢\n\n"
+                                f"🛶💨 ABANDON DINGHY! 💨🛶\n\n"
                                 f"This battle has been scuttled!\n"
                                 f"The dinghy sinks beneath the waves... 🌊\n\n"
                                 f"Start a new battle anytime! ⚔️"
