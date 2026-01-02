@@ -44,18 +44,18 @@ def generate_board_image(board, attacker_name, defender_name, theme_color='#2C2C
     is_dark_theme = sum(theme_rgb) < 150
 
     if is_dark_theme:
-        # Player 1's board (BLACK theme)
+        # Player 1's board (BLACK theme) - brightened water by ~20%
         BG_COLOR = (12, 12, 18)
-        WATER_COLOR1 = (20, 45, 90)
-        WATER_COLOR2 = (30, 60, 110)
-        GRID_LINE_COLOR = (60, 70, 90)
+        WATER_COLOR1 = (25, 55, 110)   # Was (20, 45, 90)
+        WATER_COLOR2 = (40, 75, 135)   # Was (30, 60, 110)
+        GRID_LINE_COLOR = (70, 85, 110)  # Slightly brighter for contrast
         ACCENT_COLOR = (70, 130, 200)  # Blue accent
     else:
-        # Player 2's board (GRAY theme)
+        # Player 2's board (GRAY theme) - brightened water by ~15%
         BG_COLOR = (25, 28, 35)
-        WATER_COLOR1 = (45, 75, 120)
-        WATER_COLOR2 = (55, 90, 140)
-        GRID_LINE_COLOR = (80, 90, 110)
+        WATER_COLOR1 = (55, 90, 140)   # Was (45, 75, 120)
+        WATER_COLOR2 = (70, 110, 165)  # Was (55, 90, 140)
+        GRID_LINE_COLOR = (90, 105, 130)  # Slightly brighter for contrast
         ACCENT_COLOR = (200, 160, 80)  # Gold accent
 
     # Common colors
@@ -73,7 +73,7 @@ def generate_board_image(board, attacker_name, defender_name, theme_color='#2C2C
     try:
         font_title = ImageFont.truetype("arial.ttf", 18)
         font_label = ImageFont.truetype("arial.ttf", 20)  # Big axis labels
-        font_ship = ImageFont.truetype("arial.ttf", 11)
+        font_ship = ImageFont.truetype("arial.ttf", 14)   # Increased from 11 for readability
         font_small = ImageFont.truetype("arial.ttf", 10)
     except:
         font_title = ImageFont.load_default()
@@ -102,8 +102,8 @@ def generate_board_image(board, attacker_name, defender_name, theme_color='#2C2C
 
     def draw_ship_indicator(x, y, size, hits, is_sunk):
         """Draw a ship segment indicator showing damage status."""
-        segment_width = 18
-        segment_height = 14
+        segment_width = 22   # Increased from 18 for better mobile visibility
+        segment_height = 16  # Increased from 14 for better mobile visibility
         gap = 3
 
         for i in range(size):
@@ -142,28 +142,28 @@ def generate_board_image(board, attacker_name, defender_name, theme_color='#2C2C
 
     # Ship status display (if provided)
     if ships_status:
-        # Draw ship indicators in a row
+        # Draw ship indicators in a row - repositioned for larger segments
         ship_y = y_pos
-        x_pos = 15
+        x_pos = 10
 
-        # Giant Dinghy (3 segments)
+        # Giant Dinghy (3 segments) - 3 * (22+3) = 75px wide
         draw.text((x_pos, ship_y), "Giant:", font=font_ship, fill=(150, 150, 170))
         giant_info = ships_status.get('giant', {'hits': 0, 'sunk': False})
-        draw_ship_indicator(x_pos + 40, ship_y, 3, giant_info.get('hits', 0), giant_info.get('sunk', False))
+        draw_ship_indicator(x_pos + 48, ship_y, 3, giant_info.get('hits', 0), giant_info.get('sunk', False))
 
-        # Average Dinghy (2 segments)
+        # Average Dinghy (2 segments) - "Mid" is clearer than "Avg" - 2 * (22+3) = 50px wide
         x_pos = 145
-        draw.text((x_pos, ship_y), "Avg:", font=font_ship, fill=(150, 150, 170))
+        draw.text((x_pos, ship_y), "Mid:", font=font_ship, fill=(150, 150, 170))
         avg_info = ships_status.get('average', {'hits': 0, 'sunk': False})
-        draw_ship_indicator(x_pos + 28, ship_y, 2, avg_info.get('hits', 0), avg_info.get('sunk', False))
+        draw_ship_indicator(x_pos + 35, ship_y, 2, avg_info.get('hits', 0), avg_info.get('sunk', False))
 
-        # Tiny Dinghy (1 segment)
-        x_pos = 250
+        # Tiny Dinghy (1 segment) - 1 * (22+3) = 25px wide
+        x_pos = 255
         draw.text((x_pos, ship_y), "Tiny:", font=font_ship, fill=(150, 150, 170))
         tiny_info = ships_status.get('tiny', {'hits': 0, 'sunk': False})
-        draw_ship_indicator(x_pos + 32, ship_y, 1, tiny_info.get('hits', 0), tiny_info.get('sunk', False))
+        draw_ship_indicator(x_pos + 38, ship_y, 1, tiny_info.get('hits', 0), tiny_info.get('sunk', False))
 
-        y_pos += 25
+        y_pos += 28  # Increased from 25 for larger segments
 
     # Board position
     board_x = 55
