@@ -648,6 +648,10 @@ def main_loop():
             if response.data:
                 print(f"Found {len(response.data)} new challenge(s)")
 
+                # Rate limit protection: only process 1 challenge per cycle
+                MAX_CHALLENGES_PER_CYCLE = 1
+                challenges_processed = 0
+
                 for tweet in response.data:
                     last_challenge_tweet_id = tweet.id
 
@@ -655,6 +659,16 @@ def main_loop():
                     if BOT_USER_ID and str(tweet.author_id) == BOT_USER_ID:
                         print(f"Skipping bot's own tweet {tweet.id}")
                         continue
+
+                    # Skip if already processed (prevents reprocessing old challenges)
+                    if is_already_processed(tweet.id):
+                        print(f"Skipping already processed tweet {tweet.id}")
+                        continue
+
+                    # Rate limit protection: stop if we've processed enough this cycle
+                    if challenges_processed >= MAX_CHALLENGES_PER_CYCLE:
+                        print(f"Rate limit protection: processed {challenges_processed} challenge(s), deferring rest to next cycle")
+                        break
 
                     # Natural language challenge detection with confidence scoring
                     tweet_text_lower = tweet.text.lower()
@@ -927,6 +941,10 @@ def main_loop():
 
                     print(f"Posted reply tweet {reply.data['id']}")
                     print("Game started successfully!")
+
+                    # Mark challenge tweet as processed and increment counter
+                    add_processed_tweet(tweet.id)
+                    challenges_processed += 1
 
             else:
                 print("No new challenges found")
