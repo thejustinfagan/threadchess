@@ -896,6 +896,7 @@ def main_loop():
                     try:
                         game_id = create_game(challenger_id, opponent_id, board1, board2, thread_id)
                         print(f"Created game with thread_id {game_id}")
+                        logger.info(f"Game created: thread_id={game_id}, challenger={challenger_username}, opponent={opponent_username}")
                     except Exception as e:
                         error_msg = str(e)
                         print(f"Failed to create game: {error_msg}")
@@ -928,15 +929,26 @@ def main_loop():
                             pass  # Don't fail if reply doesn't work
                         continue  # Skip to next tweet
 
+                    # Verify game was created successfully
+                    game_data = get_game_by_thread_id(thread_id)
+                    if not game_data:
+                        print(f"ERROR: Game was not created in database for thread {thread_id}")
+                        logger.error(f"Game creation verification failed for thread {thread_id}")
+                        try:
+                            get_twitter_client().create_tweet(
+                                text="❌ Error creating game. Please try again!",
+                                in_reply_to_tweet_id=tweet.id
+                            )
+                        except:
+                            pass
+                        continue
+
                     # Get the post number for this bot tweet
                     post_number = increment_bot_post_count(thread_id)
-
-                    # Get the game data to determine who goes first (random selection)
-                    game_data = get_game_by_thread_id(thread_id)
-                    game_number = game_data.get('game_number', 1) if game_data else 1
+                    game_number = game_data.get('game_number', 1)
 
                     # Determine who goes first based on random selection in database
-                    first_turn = game_data.get('turn', 'player1') if game_data else 'player1'
+                    first_turn = game_data.get('turn', 'player1')
                     if first_turn == 'player1':
                         first_player_username = challenger_username
                         # P1 fires first at P2's fleet (opponent's fleet)

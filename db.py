@@ -88,6 +88,9 @@ def create_game(player1_id, player2_id, player1_board, player2_board, thread_id)
 
     Returns:
         str: The thread_id of the newly created game
+
+    Raises:
+        Exception: If game creation fails for any reason
     """
     game_number = get_next_game_number()
     first_turn = random.choice(['player1', 'player2'])
@@ -95,23 +98,29 @@ def create_game(player1_id, player2_id, player1_board, player2_board, thread_id)
     conn = get_connection()
     cur = conn.cursor()
     try:
-        # First, check if there's an existing non-active game with this thread_id
-        # If so, delete it to allow creating a fresh game
+        # First, delete ANY existing game with this thread_id (active, cancelled, or completed)
+        # This allows reusing a thread for a new game
         cur.execute("""
             DELETE FROM games
-            WHERE thread_id = %s AND game_state != 'active'
+            WHERE thread_id = %s
         """, (thread_id,))
         deleted = cur.rowcount
         if deleted > 0:
-            print(f"Deleted {deleted} old non-active game(s) for thread {thread_id}")
+            print(f"Deleted {deleted} old game(s) for thread {thread_id}")
 
+        # Now insert the new game - should never conflict since we just deleted
         cur.execute("""
             INSERT INTO games (game_number, player1_id, player2_id, player1_board, player2_board, turn, game_state, thread_id, bot_post_count)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (thread_id) DO NOTHING
+            RETURNING id
         """, (game_number, player1_id, player2_id, json.dumps(player1_board), json.dumps(player2_board), first_turn, 'active', thread_id, 0))
+
+        result = cur.fetchone()
+        if not result:
+            raise Exception(f"Failed to insert game - no row returned")
+
         conn.commit()
-        print(f"Successfully created game with thread_id {thread_id}")
+        print(f"Successfully created game #{game_number} with thread_id {thread_id} (db id: {result['id']})")
     except Exception as e:
         conn.rollback()
         print(f"Error creating game: {e}")
