@@ -25,7 +25,8 @@ from image_generator import generate_board_image
 from db import (
     create_game, get_game_by_thread_id, update_game_after_shot,
     increment_bot_post_count, get_active_games, update_last_checked_tweet_id,
-    is_tweet_processed, mark_tweet_processed, cleanup_old_processed_tweets
+    is_tweet_processed, mark_tweet_processed, cleanup_old_processed_tweets,
+    cancel_all_active_games
 )
 
 # Load environment variables
@@ -518,6 +519,49 @@ def monitor_active_games():
                     # Not a player in this game - skip
                     continue
 
+                # Check for scuttle command during active game
+                tweet_text_lower = tweet.text.lower()
+                scuttle_phrases = ['abandon ship', 'scuttle the fleet', 'man overboard']
+                is_scuttle_command = any(phrase in tweet_text_lower for phrase in scuttle_phrases)
+
+                if is_scuttle_command:
+                    logger.info(f"Scuttle command detected in game thread from {author_id}: {tweet.text}")
+
+                    # Cancel all active games
+                    cancelled_count = cancel_all_active_games()
+
+                    # Get username for response
+                    scuttler_username = get_username_from_response(tweet.author_id, response)
+                    if scuttler_username == str(tweet.author_id):
+                        scuttler_username = get_username_by_id(tweet.author_id)
+
+                    # Send a fun themed response
+                    if cancelled_count > 0:
+                        scuttle_response = (
+                            f"🚢💨 ABANDON SHIP! 💨🚢\n\n"
+                            f"@{scuttler_username} has scuttled the fleet!\n"
+                            f"{cancelled_count} game(s) sent to Davy Jones' locker! 🌊\n\n"
+                            f"Start a new battle anytime! ⚔️"
+                        )
+                    else:
+                        scuttle_response = (
+                            f"🌊 The seas are calm, @{scuttler_username}!\n\n"
+                            f"No active games to scuttle.\n\n"
+                            f"Challenge someone to start a new battle! ⚔️"
+                        )
+
+                    try:
+                        get_twitter_client().create_tweet(
+                            text=scuttle_response,
+                            in_reply_to_tweet_id=tweet.id
+                        )
+                        print(f"Scuttled {cancelled_count} game(s) from game thread")
+                        add_processed_tweet(tweet_id)
+                    except Exception as e:
+                        logger.error(f"Failed to send scuttle response: {e}")
+
+                    break  # Stop processing this game thread since it's now cancelled
+
                 # Check if tweet contains a fire pattern
                 coordinate = parse_coordinate_from_text(tweet.text)
                 if not coordinate:
@@ -658,10 +702,48 @@ def main_loop():
 
                     # Natural language challenge detection with confidence scoring
                     tweet_text_lower = tweet.text.lower()
-                    
+
                     # Remove bot username to avoid false positives from keywords in username
                     # e.g., @battle_dinghy contains "battle" but shouldn't count
                     text_without_bot = tweet_text_lower.replace(f'@{BOT_USERNAME.lower()}', '')
+
+                    # =================================================================
+                    # SCUTTLE THE FLEET - Fun admin command to cancel all active games
+                    # =================================================================
+                    scuttle_phrases = ['abandon ship', 'scuttle the fleet', 'man overboard']
+                    is_scuttle_command = any(phrase in text_without_bot for phrase in scuttle_phrases)
+
+                    if is_scuttle_command:
+                        logger.info(f"Scuttle command detected from user {tweet.author_id}: {tweet.text}")
+
+                        # Cancel all active games
+                        cancelled_count = cancel_all_active_games()
+
+                        # Send a fun themed response
+                        if cancelled_count > 0:
+                            scuttle_response = (
+                                f"🚢💨 ABANDON SHIP! 💨🚢\n\n"
+                                f"All hands to the lifeboats! {cancelled_count} game(s) have been scuttled!\n\n"
+                                f"The dinghies sink beneath the waves... 🌊\n\n"
+                                f"Start a new battle anytime! ⚔️"
+                            )
+                        else:
+                            scuttle_response = (
+                                f"🌊 The seas are calm, Captain!\n\n"
+                                f"No active games to scuttle. All dinghies are safely docked.\n\n"
+                                f"Challenge someone to start a new battle! ⚔️"
+                            )
+
+                        try:
+                            get_twitter_client().create_tweet(
+                                text=scuttle_response,
+                                in_reply_to_tweet_id=tweet.id
+                            )
+                            print(f"Scuttled {cancelled_count} game(s)")
+                        except Exception as e:
+                            logger.error(f"Failed to send scuttle response: {e}")
+
+                        continue  # Skip normal challenge processing
                     
                     confidence_score = 0
                     
