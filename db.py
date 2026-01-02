@@ -377,6 +377,39 @@ def cleanup_old_processed_tweets(hours=24):
         print(f"Error cleaning up processed tweets: {e}")
 
 
+def cancel_game_by_thread_id(thread_id):
+    """
+    Cancel a specific game by its thread_id.
+
+    Args:
+        thread_id: The thread ID of the game to cancel
+
+    Returns:
+        bool: True if a game was cancelled, False otherwise
+    """
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE games SET game_state = 'cancelled'
+            WHERE thread_id = %s AND game_state = 'active'
+            RETURNING thread_id
+        """, (thread_id,))
+        result = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+        if result:
+            print(f"Cancelled game in thread {thread_id}")
+            return True
+        else:
+            print(f"No active game found in thread {thread_id}")
+            return False
+    except Exception as e:
+        print(f"Error cancelling game: {e}")
+        return False
+
+
 def cancel_all_active_games():
     """
     Cancel all active games by setting their state to 'cancelled'.
